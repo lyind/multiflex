@@ -36,9 +36,11 @@ public interface Store extends AutoCloseable
 
 
     /**
-     * Open an existing or new store at the specified path.
+     * Open this store.
+     * <p>
+     * The container file is created and initialized if it doesn't exist already.
      */
-    Store open(String path) throws StoreException;
+    Store open() throws StoreException;
 
     /**
      * Register a descriptor for use with this store.

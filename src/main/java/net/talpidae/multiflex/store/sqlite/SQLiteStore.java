@@ -17,44 +17,67 @@
 
 package net.talpidae.multiflex.store.sqlite;
 
+
 import com.almworks.sqlite4java.SQLiteConnection;
 import com.almworks.sqlite4java.SQLiteException;
 import net.talpidae.multiflex.format.Chunk;
 import net.talpidae.multiflex.format.Descriptor;
 import net.talpidae.multiflex.store.Store;
 import net.talpidae.multiflex.store.StoreException;
+import net.talpidae.multiflex.store.util.Literal;
 
 import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 
 public class SQLiteStore implements Store
 {
+    private static final String[] SCHEMA_PATHS = {
+            "net/talpidae/multiflex/migration/V1_table_meta.sql",
+            "net/talpidae/multiflex/migration/V2_table_stream_descriptor.sql",
+            "net/talpidae/multiflex/migration/V3_table_stream.sql"
+    };
+
     private final File dbFile;
 
     private final Map<Integer, Descriptor> descriptorCache;
 
     private final SQLiteConnection db;
 
-    private final ExecutorService executorService;
+    private final SQLiteQueue writeQueue;
 
 
-    private SQLiteStore(String path) throws StoreException
+    public SQLiteStore(File file) throws StoreException
     {
-        dbFile = new File(path);
+        dbFile = file;
         descriptorCache = new HashMap<>();
-        executorService = Executors.newSingleThreadExecutor();
+        writeQueue = new SQLiteQueue(dbFile);
+        db = new SQLiteConnection(dbFile);
+    }
 
-        db = new SQLiteConnection(new File(path));
+
+    @Override
+    public Store open() throws StoreException
+    {
         try
         {
+            descriptorCache.clear();
+
             db.open(true);
+        }
+        catch (SQLiteException e)
+        {
+
+        }
+
+        try
+        {
+            createSchema();
+
+            return this;
         }
         catch (SQLiteException e)
         {
@@ -63,13 +86,7 @@ public class SQLiteStore implements Store
     }
 
     @Override
-    public Store open(String path) throws StoreException
-    {
-        return new SQLiteStore(path);
-    }
-
-    @Override
-    public void register(Descriptor descriptor)
+    public synchronized void register(Descriptor descriptor)
     {
 
     }
@@ -107,17 +124,37 @@ public class SQLiteStore implements Store
     @Override
     public void close() throws Exception
     {
-        executorService.shutdown();
+        writeQueue.stop(true);
+        writeQueue.join();  // TODO Override and join with timeout?
 
-        try
-        {
-            executorService.awaitTermination(5, TimeUnit.SECONDS);
-        }
-        finally
-        {
-            executorService.shutdownNow();
+        db.dispose();
+    }
 
-            db.dispose();
-        }
+
+    /**
+     * Create the initial schema.
+     */
+    private void createSchema() throws StoreException
+    {
+        writeQueue.schedule(connection ->
+        {
+            try
+            {
+                for (final String path : SCHEMA_PATHS)
+                {
+                    final String sql = Literal.from(path);
+
+                    connection.exec(sql);
+                }
+
+                connection.exec("COMMIT");
+
+                return null;
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException(e.getMessage(), e);
+            }
+        }).getCatching();
     }
 }

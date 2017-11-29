@@ -18,7 +18,37 @@
 package net.talpidae.multiflex;
 
 
+import net.talpidae.multiflex.store.Store;
+import net.talpidae.multiflex.store.StoreException;
+import net.talpidae.multiflex.store.sqlite.SQLiteStore;
+
+import java.io.File;
+
+
 public class Multiflex
 {
 
+    public static Store open(File dbFile) throws StoreException
+    {
+        final Store store = new SQLiteStore(dbFile);
+        try
+        {
+            store.open();
+        }
+        catch (StoreException e)
+        {
+            try
+            {
+                store.close();
+            }
+            catch (Exception e1)
+            {
+                final StoreException nextException = new StoreException(e1.getMessage(), e1);
+                nextException.addSuppressed(e);
+                throw nextException;
+            }
+
+            throw e;
+        }
+    }
 }
