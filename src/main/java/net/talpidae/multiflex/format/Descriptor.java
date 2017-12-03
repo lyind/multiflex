@@ -17,32 +17,27 @@
 
 package net.talpidae.multiflex.format;
 
+
 /**
  * Describes the format of the data stored in one or multiple chunks.
  */
-public interface Descriptor
+public interface Descriptor extends Iterable<Track>
 {
     /**
-     * Return a new Builder instance.
+     * Get the number of tracks/streams.
      */
-    Builder builder();
+    int size();
 
 
     /**
-     * Get the application defined stream ID.
+     * Get the track with the specified ID that is associated with this descriptor.
      */
-    int[] getStreamIds();
-
-
-    /**
-     * Get the encoding for the part of the stream with the specified ID that is associated with this descriptor.
-     */
-    Encoding getEncoding(int streamId);
+    Track getTrack(int trackId);
 
 
     interface Builder
     {
-        Builder addStream(int streamId, Encoding encoding);
+        Builder track(int trackId, Encoding encoding);
 
         Descriptor build();
     }

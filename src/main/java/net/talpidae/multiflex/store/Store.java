@@ -39,19 +39,16 @@ public interface Store extends AutoCloseable
      * Open this store.
      * <p>
      * The container file is created and initialized if it doesn't exist already.
+     *
+     * @param writable Specifies if the store shall be opened in writable or read-only mode.
+     * @return this
      */
-    Store open() throws StoreException;
-
-    /**
-     * Register a descriptor for use with this store.
-     */
-    void register(Descriptor descriptor);
-
+    Store open(boolean writable) throws StoreException;
 
     /**
      * Insert new or replace existing chunk.
      */
-    void put(long ts, Chunk chunk);
+    void put(long ts, Chunk chunk) throws StoreException;
 
 
     /**
@@ -76,4 +73,21 @@ public interface Store extends AutoCloseable
      * Store the specified meta-data value uniquely identified by the key.
      */
     void putMeta(String key, String value);
+
+
+    /**
+     * Return a Descriptor.Builder instance.
+     */
+    Descriptor.Builder descriptorBuilder();
+
+    /**
+     * Return a Chunk.Builder instance configured for the specified descriptor.
+     */
+    Chunk.Builder chunkBuilder(Descriptor descriptor);
+
+    /**
+     * Close this store. This instance can't be used afterwards.
+     */
+    @Override
+    void close() throws StoreException;
 }

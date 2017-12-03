@@ -36,30 +36,31 @@ public final class Literal
      * Load resources as String literals. Consider this a workaround for non-existing Java multi-line strings.
      *
      * @param path The path of the String literal resource to use ("/blabla/resource.txt" for "/src/main/resources/blabla/resource.txt").
-     * @return The String content of the specified resource.
+     * @return The String content of the specified resource or null if the resources wasn't found
      */
-    public static String from(String path) throws IOException, ClassNotFoundException
+    public static String from(String path) throws IOException
     {
         final InputStream inputStream = Thread.currentThread().getContextClassLoader().getResourceAsStream(path);
-        if (inputStream == null)
-            throw new ClassNotFoundException("Resource not found: " + path);
+        if (inputStream != null)
+        {
+            return readAll(inputStream);
+        }
 
-        return readAll(inputStream);
+        return null;
     }
 
     private static String readAll(InputStream inputStream) throws IOException
     {
         final StringBuilder builder = new StringBuilder();
-        final Reader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
         final char[] buffer = new char[512];
 
-        while (true)
+        try (final Reader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8))
         {
-            int readCount = reader.read(buffer);
-            if (readCount <= 0)
-                break;
-
-            builder.append(buffer, 0, readCount);
+            int readCount;
+            while ((readCount = reader.read(buffer)) > 0)
+            {
+                builder.append(buffer, 0, readCount);
+            }
         }
 
         return builder.toString();

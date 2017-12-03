@@ -17,17 +17,17 @@
 
 package net.talpidae.multiflex.format;
 
+import net.talpidae.multiflex.store.StoreException;
+
+import java.nio.ByteBuffer;
+
+
 public interface Chunk extends AutoCloseable
 {
     /**
-     * Get a new Builder instance.
+     * Get the descriptors for all fields of this track.
      */
-    Builder builder();
-
-    /**
-     * Get the descriptors for all fields of this stream.
-     */
-    Descriptor getDescriptors();
+    Descriptor getDescriptor();
 
     /**
      * Get the chunk's timestamp in microseconds since the containing store's epoch.
@@ -35,32 +35,30 @@ public interface Chunk extends AutoCloseable
     long getTimestamp();
 
     /**
-     * Get the integers for the field identified by the specified stream ID.
+     * Get the integers for the field identified by the specified track ID.
      */
-    int[] getIntegers(int streamId);
+    int[] getIntegers(int trackId) throws StoreException;
 
     /**
-     * Get the text for the field identified by the specified stream ID (must be of a text type).
+     * Get the text for the field identified by the specified track ID (must be of a text type).
      */
-    String getText(int streamId);
+    String getText(int trackId) throws StoreException;
 
     /**
-     * Get the binary data for the field identified by the specified stream ID (must be of a binary type).
+     * Get the binary data for the field identified by the specified track ID (must be of a binary type).
      */
-    byte[] getBinary(int streamId);
+    ByteBuffer getBinary(int trackId) throws StoreException;
 
 
     interface Builder
     {
-        Builder descriptor(Descriptor descriptor);
-
         Builder timestamp(long timestamp);
 
-        Builder integers(int streamId, int[] integers);
+        Builder integers(int trackId, int[] integers);
 
-        Builder text(int streamId, String text);
+        Builder text(int trackId, String text);
 
-        Builder binary(int streamId, byte[] binary);
+        Builder binary(int trackId, ByteBuffer binary);
 
         Chunk build();
     }

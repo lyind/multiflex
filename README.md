@@ -25,7 +25,8 @@ Chunks are blobs encoded using the following format:
 
 Name | Description
 --- | ---
-Indices | Compressed 32-bit integers with the byte offsets of the data fields mentioned in the *descriptor*, starting after the end of this field
+Indices | Compressed 32-bit integers with the byte offsets of the data fields mentioned in the *descriptor*, starting after the end of field *Data Length*
+Data Length | Compressed 32-bit integers with the uncompressed length of the data fields mentioned in the *descriptor*
 Data 0 | Data for stream 0 (encoded as defined by the specified *descriptor*)
 Data 1 | Data for stream 1
 Data n | Data for stream n

@@ -17,18 +17,27 @@
 
 package net.talpidae.multiflex.format;
 
+import java.util.Arrays;
+import java.util.List;
+
+
 /**
  * All supported encodings for data fields.
  */
 public enum Encoding
 {
     /**
+     * No data at all.
+     */
+    NONE,
+
+    /**
      * Uncompressed binary data, 0x0
      */
     BINARY,
 
     /**
-     * UTF-8 encoded character string (zero terminated), 0x1
+     * UTF-8 encoded character string (not zero terminated), 0x1
      */
     UTF8_STRING,
 
@@ -40,5 +49,8 @@ public enum Encoding
     /**
      * Array of 32-bit signed integers, compressed using Delta, VariableByte and FastPFOR, 0x3
      */
-    INT32_DELTA_VAR_BYTE_FAST_PFOR
+    INT32_DELTA_VAR_BYTE_FAST_PFOR;
+
+
+    public static final List<Encoding> values = Arrays.asList(values());
 }

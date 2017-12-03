@@ -1,5 +1,6 @@
 -- Stores additional meta data
 -- Pre-defined entries:
+--   id -> this stores UUID
 --   version -> integer which defined the format version
 --   epochMillies -> store epoch microseconds since UNIX epoch
 CREATE TABLE IF NOT EXISTS meta (

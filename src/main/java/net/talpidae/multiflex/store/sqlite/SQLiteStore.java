@@ -24,78 +24,197 @@ import net.talpidae.multiflex.format.Chunk;
 import net.talpidae.multiflex.format.Descriptor;
 import net.talpidae.multiflex.store.Store;
 import net.talpidae.multiflex.store.StoreException;
-import net.talpidae.multiflex.store.util.Literal;
 
 import java.io.File;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.UUID;
 
 
 public class SQLiteStore implements Store
 {
-    private static final String[] SCHEMA_PATHS = {
-            "net/talpidae/multiflex/migration/V1_table_meta.sql",
-            "net/talpidae/multiflex/migration/V2_table_stream_descriptor.sql",
-            "net/talpidae/multiflex/migration/V3_table_stream.sql"
-    };
-
     private final File dbFile;
 
-    private final Map<Integer, Descriptor> descriptorCache;
+    private final SQLiteDescriptorCache descriptorCache;
 
     private final SQLiteConnection db;
 
-    private final SQLiteQueue writeQueue;
+    private final Transaction transaction;
+
+    private final DAO dao;
+
+    /**
+     * The opened stores unique ID.
+     */
+    private UUID id;
+
+    private boolean inTransaction = false;
+
+    private volatile State state = State.INITIAL;
+
+    private int schemaVersion = 0;
 
 
-    public SQLiteStore(File file) throws StoreException
+    public SQLiteStore(File file)
     {
         dbFile = file;
-        descriptorCache = new HashMap<>();
-        writeQueue = new SQLiteQueue(dbFile);
         db = new SQLiteConnection(dbFile);
+        descriptorCache = new SQLiteDescriptorCache(this);
+
+        // simple DAO for our format's tables
+        dao = new DAO(db);
+
+        // implement single level transaction
+        transaction = new Transaction()
+        {
+            @Override
+            public DAO getDao()
+            {
+                return dao;
+            }
+
+            @Override
+            public boolean isActive()
+            {
+                return inTransaction;
+            }
+
+            @Override
+            public void begin() throws StoreException
+            {
+                if (!inTransaction)
+                {
+                    try
+                    {
+                        dao.beginTransaction();
+                        inTransaction = true;
+                    }
+                    catch (SQLiteException e)
+                    {
+                        throw new StoreException("transaction begin failed", e);
+                    }
+                }
+            }
+
+            @Override
+            public void rollback()
+            {
+                if (inTransaction)
+                {
+                    dao.rollback();
+                    inTransaction = false;
+                }
+            }
+
+            @Override
+            public void commit() throws StoreException
+            {
+                if (inTransaction)
+                {
+                    try
+                    {
+                        dao.commit();
+                        inTransaction = false;
+                    }
+                    catch (SQLiteException e)
+                    {
+                        throw new StoreException("transaction commit failed", e);
+                    }
+                }
+            }
+        };
     }
 
-
     @Override
-    public Store open() throws StoreException
+    public Store open(boolean writable) throws StoreException
     {
-        try
+        synchronized (this)
         {
-            descriptorCache.clear();
+            if (state != State.INITIAL)
+                throw new StoreException("store has already been opened");
 
-            db.open(true);
-        }
-        catch (SQLiteException e)
-        {
+            // make sure binary libraries are in place
+            Library.deployAndConfigure();
 
-        }
+            try
+            {
+                if (writable)
+                {
+                    db.open(true);
+                    state = State.OPEN_READWRITE;
+                }
+                else
+                {
+                    db.openReadonly();
+                    state = State.OPEN_READONLY;
+                }
+            }
+            catch (SQLiteException e)
+            {
+                state = State.CLOSED;
+                throw new StoreException(e.getMessage(), e);
+            }
 
-        try
-        {
-            createSchema();
+            // DB is open now, initialize
+            try
+            {
+                if (state == State.OPEN_READWRITE)
+                {
+                    schemaVersion = updateSchema();
+                }
+                else
+                {
+                    // read-only, just check if the schema is present
+                    schemaVersion = validateSchema();
+                }
+            }
+            catch (IllegalStateException | StoreException e)
+            {
+                final StoreException relayed = e instanceof StoreException
+                        ? (StoreException) e
+                        : new StoreException(e.getMessage(), e);
+                try
+                {
+                    close();
+                }
+                catch (StoreException e1)
+                {
+                    relayed.addSuppressed(e1);
+                }
+
+                throw relayed;
+            }
 
             return this;
         }
-        catch (SQLiteException e)
+    }
+
+    @Override
+    public void put(long ts, Chunk chunk) throws StoreException
+    {
+        if (state != State.OPEN_READWRITE)
         {
-            throw new StoreException(e.getMessage(), e);
+            throw new StoreException("store not writable");
         }
+
+        if (!(chunk instanceof SQLiteChunk))
+        {
+            throw new StoreException("unsupported chunk implementation: " + chunk.getClass().getName());
+        }
+
+        final SQLiteChunk actualChunk = (SQLiteChunk) chunk;
+        perform(transaction ->
+        {
+            descriptorCache.intern(actualChunk.getDescriptor(), transaction);
+
+            actualChunk.persist(dao);
+
+            transaction.commit();
+
+            return null;
+        });
     }
 
-    @Override
-    public synchronized void register(Descriptor descriptor)
-    {
-
-    }
-
-    @Override
-    public void put(long ts, Chunk chunk)
-    {
-
-    }
 
     @Override
     public Chunk findByTimestamp(long ts)
@@ -122,39 +241,191 @@ public class SQLiteStore implements Store
     }
 
     @Override
-    public void close() throws Exception
+    public Descriptor.Builder descriptorBuilder()
     {
-        writeQueue.stop(true);
-        writeQueue.join();  // TODO Override and join with timeout?
+        return new SQLiteDescriptor.Builder(this);
+    }
 
-        db.dispose();
+    @Override
+    public Chunk.Builder chunkBuilder(Descriptor descriptor)
+    {
+        if (!(descriptor instanceof SQLiteDescriptor))
+        {
+            throw new IllegalArgumentException("incompatible descriptor implementation");
+        }
+
+        return new SQLiteChunk.Builder((SQLiteDescriptor) descriptor);
     }
 
 
     /**
-     * Create the initial schema.
+     * Get the store's unique ID.
      */
-    private void createSchema() throws StoreException
+    public UUID getId()
     {
-        writeQueue.schedule(connection ->
+        return id;
+    }
+
+
+    @Override
+    public void close() throws StoreException
+    {
+        synchronized (this)
+        {
+            switch (state)
+            {
+                case OPEN_READWRITE:
+                case OPEN_READONLY:
+                {
+                    descriptorCache.clear();
+
+                    db.dispose();
+                    break;
+                }
+
+                default:
+                    break;
+            }
+
+            state = State.CLOSED;
+        }
+    }
+
+
+    /**
+     * Run a TransactionalTask inside a new DB transaction.
+     * <p>
+     * The transaction is automatically rolled back on any exception thrown from the task.
+     */
+    <T> T perform(TransactionalTask<T> task) throws StoreException
+    {
+        transaction.begin();
+        try
+        {
+            return task.perform(transaction);
+        }
+        finally
+        {
+            // only rolls back if the transaction hasn't been committed before
+            transaction.rollback();
+        }
+    }
+
+
+    /**
+     * Validate the schema.
+     * <p>
+     * Just check if the current schema version is the last available version.
+     *
+     * @return This store's UUID.
+     */
+    private int validateSchema() throws StoreException
+    {
+        return perform(transaction ->
         {
             try
             {
-                for (final String path : SCHEMA_PATHS)
+                final int version = dao.selectVersion();
+                final int expectedVersion = Migration.getExpectedSchemaVersion();
+                if (Migration.getExpectedSchemaVersion() > version)
                 {
-                    final String sql = Literal.from(path);
-
-                    connection.exec(sql);
+                    throw new StoreException("schema version too old: " + version + ", expected: " + expectedVersion);
                 }
 
-                connection.exec("COMMIT");
+                UUID storeId = dao.selectStoreId();
+                if (storeId == null || storeId.version() != 4)
+                {
+                    throw new StoreException("store id not present or invalid");
+                }
 
-                return null;
+                id = storeId;
+
+                return version;
             }
             catch (SQLiteException e)
             {
                 throw new StoreException(e.getMessage(), e);
             }
-        }).getCatching();
+        });
+    }
+
+    /**
+     * Create the initial schema.
+     *
+     * @return This stores UUID
+     */
+    private int updateSchema() throws StoreException
+    {
+        return perform(transaction ->
+        {
+            try
+            {
+                int version = dao.selectVersion();
+                final int expectedVersion = Migration.getExpectedSchemaVersion();
+                try
+                {
+                    if (version < expectedVersion)
+                    {
+                        // execute all migration necessary to reach the expected version
+                        for (final String migration : Migration.getMigrations(version))
+                        {
+                            db.exec(migration);
+
+                            // register schema version
+                            dao.replaceVersion(++version);
+                        }
+
+                        UUID storeId = dao.selectStoreId();
+                        if (storeId == null)
+                        {
+                            storeId = UUID.randomUUID();
+                            dao.insertOrReplaceStoreId(storeId);
+                        }
+                        else if (storeId.version() != 4)
+                        {
+                            throw new StoreException("store id not present or invalid");
+                        }
+
+                        transaction.commit();
+
+                        id = storeId;
+                    }
+                    else
+                    {
+                        UUID storeId = dao.selectStoreId();
+                        if (storeId == null || storeId.version() != 4)
+                        {
+                            throw new StoreException("store id not present or invalid");
+                        }
+
+                        id = storeId;
+                    }
+
+                    return expectedVersion;
+                }
+                catch (SQLiteException e)
+                {
+                    throw new StoreException("failed to migrate schema from version " + version + " to " + version + 1, e);
+                }
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException("failed to ensure schema version", e);
+            }
+        });
+    }
+
+    /**
+     * This stores state.
+     */
+    private enum State
+    {
+        INITIAL,
+
+        OPEN_READONLY,
+
+        OPEN_READWRITE,
+
+        CLOSED
     }
 }

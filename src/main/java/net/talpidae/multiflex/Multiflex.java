@@ -28,12 +28,19 @@ import java.io.File;
 public class Multiflex
 {
 
-    public static Store open(File dbFile) throws StoreException
+    /**
+     * Open the store at the specified location read-write or read-only.
+     *
+     * @param dbFile   The store file
+     * @param writable Open the store in writable mode or not
+     * @return An open store instance
+     */
+    public static Store open(File dbFile, boolean writable) throws StoreException
     {
         final Store store = new SQLiteStore(dbFile);
         try
         {
-            store.open();
+            return store.open(writable);
         }
         catch (StoreException e)
         {
