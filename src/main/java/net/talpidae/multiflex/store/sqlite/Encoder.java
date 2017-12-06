@@ -1,3 +1,20 @@
+/*
+ * Copyright (C) 2017  Jonas Zeiger <jonas.zeiger@talpidae.net>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
 package net.talpidae.multiflex.store.sqlite;
 
 import me.lemire.integercompression.*;
@@ -10,6 +27,8 @@ import java.nio.CharBuffer;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
+
+import static java.nio.ByteOrder.LITTLE_ENDIAN;
 
 
 class Encoder
@@ -172,7 +191,7 @@ class Encoder
                 // TODO Optimize this by making compression directly support ByteBuffer/IntBuffer as input/output or use array()
                 encoder.INT32_VAR_BYTE_FAST_PFOR.headlessCompress(in, new IntWrapper(0), in.length, outBuffer, outPos);
 
-                out.asIntBuffer().put(outBuffer, 0, outPos.get());
+                out.order(LITTLE_ENDIAN).asIntBuffer().put(outBuffer, 0, outPos.get());
                 break;
             }
 
@@ -181,7 +200,7 @@ class Encoder
                 // TODO Optimize this by making compression directly support ByteBuffer/IntBuffer as input/output or use array()
                 encoder.INT32_DELTA_VAR_BYTE_FAST_PFOR.headlessCompress(in, new IntWrapper(0), in.length, outBuffer, outPos);
 
-                out.asIntBuffer().put(outBuffer, 0, outPos.get());
+                out.order(LITTLE_ENDIAN).asIntBuffer().put(outBuffer, 0, outPos.get());
                 break;
             }
 

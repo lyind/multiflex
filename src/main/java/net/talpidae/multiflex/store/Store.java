@@ -54,7 +54,7 @@ public interface Store extends AutoCloseable
     /**
      * Find a single chunk by exact timestamp.
      */
-    Chunk findByTimestamp(long ts);
+    Chunk findByTimestamp(long ts) throws StoreException;
 
 
     /**
@@ -66,13 +66,13 @@ public interface Store extends AutoCloseable
     /**
      * Retrieve the meta-data value associated with the specified key.
      */
-    String getMeta(String key);
+    String getMeta(String key) throws StoreException;
 
 
     /**
      * Store the specified meta-data value uniquely identified by the key.
      */
-    void putMeta(String key, String value);
+    void putMeta(String key, String value) throws StoreException;
 
 
     /**

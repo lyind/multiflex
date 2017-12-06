@@ -1,16 +1,30 @@
+/*
+ * Copyright (C) 2017  Jonas Zeiger <jonas.zeiger@talpidae.net>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
 package net.talpidae.multiflex.store.sqlite;
 
 import com.almworks.sqlite4java.SQLiteException;
 import net.talpidae.multiflex.format.Chunk;
 import net.talpidae.multiflex.format.Encoding;
-import net.talpidae.multiflex.format.Track;
 import net.talpidae.multiflex.store.StoreException;
 import net.talpidae.multiflex.store.sqlite.SQLiteDescriptor.SQLiteTrack;
-import net.talpidae.multiflex.store.util.SparseArray;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
 
 
 public class SQLiteChunk implements Chunk
@@ -153,13 +167,11 @@ public class SQLiteChunk implements Chunk
 
     static class Builder implements Chunk.Builder
     {
-        private final SparseArray<Object> values = new SparseArray<>();
-
         private final SQLiteDescriptor descriptor;
 
-        private final int[] offsets;
+        private final ByteBuffer[] values;
 
-        private final int[] lengths;
+        private final int[] uncompressedLengths;
 
         private long timestamp = -1;
 
@@ -167,8 +179,10 @@ public class SQLiteChunk implements Chunk
         Builder(SQLiteDescriptor descriptor)
         {
             this.descriptor = descriptor;
-            this.offsets = new int[descriptor.size()];
-            this.lengths = new int[descriptor.size()];
+
+            final int trackCount = descriptor.size();
+            this.values = new ByteBuffer[trackCount];
+            this.uncompressedLengths = new int[trackCount];
         }
 
         @Override
@@ -179,25 +193,79 @@ public class SQLiteChunk implements Chunk
         }
 
         @Override
-        public Chunk.Builder integers(int trackId, int[] integers)
+        public Chunk.Builder integers(int trackId, int[] integers) throws StoreException
         {
             final SQLiteTrack track = findTrack(trackId);
 
-            this.values.put(trackId, integers);
+            final int uncompressedLength = integers.length;
+
+            final ByteBuffer data = ByteBuffer.allocate(uncompressedLength);
+            Encoder.encodeIntegers(integers, data, track.getEncoding());
+            data.flip();
+
+            // store uncompressed length to allow for decompression
+            final int index = track.getIndex();
+            if (values[index] == null)
+            {
+                values[index] = data;
+                uncompressedLengths[index] = uncompressedLength;
+            }
+            else
+            {
+                throw new IllegalArgumentException("values for track with id " + trackId + " have already been set");
+            }
+
             return this;
         }
 
         @Override
-        public Chunk.Builder text(int trackId, String text)
+        public Chunk.Builder text(int trackId, String text) throws StoreException
         {
-            this.values.put(trackId, text);
+            final SQLiteTrack track = findTrack(trackId);
+
+            final int uncompressedLength = text.length();
+
+            final ByteBuffer data = ByteBuffer.allocate(uncompressedLength * 4);
+            Encoder.encodeText(text, data, track.getEncoding());
+            data.flip();
+
+            final int index = track.getIndex();
+            if (values[index] == null)
+            {
+                values[index] = data;
+                uncompressedLengths[index] = uncompressedLength;
+            }
+            else
+            {
+                throw new IllegalArgumentException("values for track with id " + trackId + " have already been set");
+            }
+
             return this;
         }
 
         @Override
         public Chunk.Builder binary(int trackId, ByteBuffer binary)
         {
-            this.values.put(trackId, binary);
+            final SQLiteTrack track = findTrack(trackId);
+
+            final int uncompressedBytes = binary.remaining();
+
+            // we may later use a real compression scheme, so don't just put the original buffer
+            final ByteBuffer data = ByteBuffer.allocate(uncompressedBytes);
+            Encoder.encodeBinary(binary, data, track.getEncoding());
+            data.flip();
+
+            final int index = track.getIndex();
+            if (values[index] == null)
+            {
+                values[index] = data;
+                uncompressedLengths[index] = uncompressedBytes;
+            }
+            else
+            {
+                throw new IllegalArgumentException("values for track with id " + trackId + " have already been set");
+            }
+
             return this;
         }
 
@@ -214,64 +282,38 @@ public class SQLiteChunk implements Chunk
         }
 
 
-        private int estimateDataLength()
-        {
-            // values (uncompressed)
-            return values.reduce((sum, key, value) ->
-            {
-                if (value instanceof int[])
-                {
-                    return sum += ((int[]) value).length * 4;
-                }
-                else if (value instanceof ByteBuffer)
-                {
-                    return sum += ((ByteBuffer) value).remaining();
-                }
-                else if (value instanceof String)
-                {
-                    return sum += ((String) value).length() * 2;
-                }
-                else
-                {
-                    // null or unsupported
-                    return sum += 0;
-                }
-            }, 0);
-        }
-
-
         @Override
-        public Chunk build()
+        public Chunk build() throws StoreException
         {
-            // n offsets @ 4byte
-            final int offsetsLength = descriptor.size() * 4;
-            final ByteBuffer data = ByteBuffer.allocate(offsetsLength + estimateDataLength())
+            if (timestamp < 0)
+            {
+                throw new IllegalArgumentException("timestamp not set or invalid");
+            }
+
+            // calculate offsets and total compressed data length
+            final int[] offsets = new int[values.length];
+            int compressedDataTotal = 0;
+            int index = 0;
+            for (final ByteBuffer value : values)
+            {
+                offsets[index] = compressedDataTotal;
+
+                compressedDataTotal += value != null ? value.remaining() : 0;
+                ++index;
+            }
+
+            // over-allocate by just a few bytes (don't know offsets/lengths compressed size, yet)
+            final ByteBuffer data = ByteBuffer.allocate((index * 2) + compressedDataTotal)
                     .order(ByteOrder.LITTLE_ENDIAN);
 
-            // start writing data behind offset list
-            data.position(offsetsLength);
+            // we always know how many integers we have uncompressed from the descriptor
+            Encoder.encodeIntegers(offsets, data, Encoding.INT32_DELTA_VAR_BYTE_FAST_PFOR);
+            Encoder.encodeIntegers(uncompressedLengths, data, Encoding.INT32_VAR_BYTE_FAST_PFOR);
 
-            int offsetPosition = 0;
-            for (final Track track : descriptor)
+            // start writing data behind offsets and uncompressed lengths
+            for (final ByteBuffer value : values)
             {
-                // write offset
-                data.putInt(offsetPosition, data.position());
-                offsetPosition += 4;
-
-                final Object value = values.get(track.getId());
-                if (value instanceof int[])
-                {
-                    // compress
-                    //return sum += ((int[]) value).length * 4;
-                }
-                else if (value instanceof ByteBuffer)
-                {
-                    data.put((ByteBuffer) value);
-                }
-                else if (value instanceof String)
-                {
-                    data.put(((String) value).getBytes(StandardCharsets.UTF_8));
-                }
+                data.put(value);
             }
 
             return new SQLiteChunk(descriptor, timestamp, data);

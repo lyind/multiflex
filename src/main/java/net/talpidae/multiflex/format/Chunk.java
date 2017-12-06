@@ -54,12 +54,12 @@ public interface Chunk extends AutoCloseable
     {
         Builder timestamp(long timestamp);
 
-        Builder integers(int trackId, int[] integers);
+        Builder integers(int trackId, int[] integers) throws StoreException;
 
-        Builder text(int trackId, String text);
+        Builder text(int trackId, String text) throws StoreException;
 
         Builder binary(int trackId, ByteBuffer binary);
 
-        Chunk build();
+        Chunk build() throws StoreException;
     }
 }

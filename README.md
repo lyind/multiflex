@@ -15,8 +15,9 @@ The descriptors are internally stored as binary blobs that contain multiple inst
 
 Offset | Name | Description
 --- | --- | ---
-0   | ID | Application defined numeric identifier (32-bit signed) of the stream. 
-4   | Encoding | Type of data and mode of compression used (see *encoding*) as 32-bit signed integer
+0   | Length | 32-bit integer, Number of compressed records in this descriptor
+4   | ID | First application defined numeric track identifier (32-bit signed) 
+8   | Encoding | Type of data and mode of compression used (see *encoding*) for track 1 (32-bit signed) 
 
 
 ## Chunk format

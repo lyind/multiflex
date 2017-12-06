@@ -26,6 +26,7 @@ import net.talpidae.multiflex.store.Store;
 import net.talpidae.multiflex.store.StoreException;
 
 import java.io.File;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -33,6 +34,14 @@ import java.util.UUID;
 
 public class SQLiteStore implements Store
 {
+    private static final String STORE_ID_KEY = "id";
+
+    private static final String EPOCH_MILLIES_KEY = "epochMillies";
+
+    private static final String VERSION_KEY = "version";
+
+    private static final List<String> RESERVED_META_KEYS = Arrays.asList(STORE_ID_KEY, EPOCH_MILLIES_KEY, VERSION_KEY);
+
     private final File dbFile;
 
     private final SQLiteDescriptorCache descriptorCache;
@@ -203,13 +212,11 @@ public class SQLiteStore implements Store
         }
 
         final SQLiteChunk actualChunk = (SQLiteChunk) chunk;
-        perform(transaction ->
+        perform(() ->
         {
-            descriptorCache.intern(actualChunk.getDescriptor(), transaction);
+            descriptorCache.intern(actualChunk.getDescriptor());
 
             actualChunk.persist(dao);
-
-            transaction.commit();
 
             return null;
         });
@@ -217,9 +224,19 @@ public class SQLiteStore implements Store
 
 
     @Override
-    public Chunk findByTimestamp(long ts)
+    public Chunk findByTimestamp(long ts) throws StoreException
     {
-        return null;
+        return perform(() ->
+        {
+            try
+            {
+                return dao.selectChunkByTimestamp(ts, descriptorCache::get);
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException("failed to read chunk for timestamp " + ts);
+            }
+        });
     }
 
     @Override
@@ -229,15 +246,42 @@ public class SQLiteStore implements Store
     }
 
     @Override
-    public String getMeta(String key)
+    public String getMeta(String key) throws StoreException
     {
-        return null;
+        return perform(() ->
+        {
+            try
+            {
+                return dao.selectMeta(key);
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException("failed to get meta value with key: " + key + ": " + e.getMessage(), e);
+            }
+        });
     }
 
     @Override
-    public void putMeta(String key, String value)
+    public void putMeta(String key, String value) throws StoreException
     {
+        if (RESERVED_META_KEYS.contains(key))
+        {
+            throw new IllegalArgumentException("reserved keys must not be used, offending key: " + key);
+        }
 
+        perform(() ->
+        {
+            try
+            {
+                dao.insertOrReplaceMeta(key, value);
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException("failed to put meta value: key=" + key + ", value: " + value + ": " + e.getMessage(), e);
+            }
+
+            return null;
+        });
     }
 
     @Override
@@ -264,6 +308,15 @@ public class SQLiteStore implements Store
     public UUID getId()
     {
         return id;
+    }
+
+
+    /**
+     * Get the stores DAO.
+     */
+    DAO getDao()
+    {
+        return dao;
     }
 
 
@@ -302,7 +355,12 @@ public class SQLiteStore implements Store
         transaction.begin();
         try
         {
-            return task.perform(transaction);
+            // if task throws, the transaction is rolled back
+            final T result = task.perform();
+
+            transaction.commit();
+
+            return result;
         }
         finally
         {
@@ -321,7 +379,7 @@ public class SQLiteStore implements Store
      */
     private int validateSchema() throws StoreException
     {
-        return perform(transaction ->
+        return perform(() ->
         {
             try
             {
@@ -356,7 +414,7 @@ public class SQLiteStore implements Store
      */
     private int updateSchema() throws StoreException
     {
-        return perform(transaction ->
+        return perform(() ->
         {
             try
             {
@@ -375,30 +433,53 @@ public class SQLiteStore implements Store
                             dao.replaceVersion(++version);
                         }
 
-                        UUID storeId = dao.selectStoreId();
-                        if (storeId == null)
+                        final String storeIdValue = dao.selectMeta(STORE_ID_KEY);
+                        final UUID storeId;
+                        if (storeIdValue == null)
                         {
                             storeId = UUID.randomUUID();
-                            dao.insertOrReplaceStoreId(storeId);
+                            dao.insertOrReplaceMeta(STORE_ID_KEY, storeId.toString());
                         }
-                        else if (storeId.version() != 4)
+                        else
                         {
-                            throw new StoreException("store id not present or invalid");
+                            try
+                            {
+                                storeId = UUID.fromString(storeIdValue);
+                                if (storeId.version() != 4)
+                                {
+                                    throw new StoreException("unexpected store id version");
+                                }
+                            }
+                            catch (IllegalArgumentException e)
+                            {
+                                throw new StoreException("store id not present or invalid");
+                            }
                         }
-
-                        transaction.commit();
 
                         id = storeId;
                     }
                     else
                     {
-                        UUID storeId = dao.selectStoreId();
-                        if (storeId == null || storeId.version() != 4)
+                        try
+                        {
+                            final String storeIdValue = dao.selectMeta(STORE_ID_KEY);
+                            if (storeIdValue == null)
+                            {
+                                throw new StoreException("store id not present");
+                            }
+
+                            final UUID storeId = UUID.fromString(storeIdValue);
+                            if (storeId.version() != 4)
+                            {
+                                throw new StoreException("unexpected store id version");
+                            }
+
+                            id = storeId;
+                        }
+                        catch (IllegalArgumentException e)
                         {
                             throw new StoreException("store id not present or invalid");
                         }
-
-                        id = storeId;
                     }
 
                     return expectedVersion;

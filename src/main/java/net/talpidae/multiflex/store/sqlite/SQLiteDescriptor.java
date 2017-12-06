@@ -1,8 +1,26 @@
+/*
+ * Copyright (C) 2017  Jonas Zeiger <jonas.zeiger@talpidae.net>
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
 package net.talpidae.multiflex.store.sqlite;
 
 import net.talpidae.multiflex.format.Descriptor;
 import net.talpidae.multiflex.format.Encoding;
 import net.talpidae.multiflex.format.Track;
+import net.talpidae.multiflex.store.StoreException;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -20,13 +38,35 @@ public class SQLiteDescriptor implements Descriptor
     private transient int cachedHashCode = 0;
 
 
-    SQLiteDescriptor(SQLiteTrack[] tracks, long id, UUID storeId)
+    private SQLiteDescriptor(SQLiteTrack[] tracks, long id, UUID storeId)
     {
         this.tracks = tracks;
         this.id = id;
         this.storeId = storeId;
     }
 
+    /**
+     * Build a descriptor out of the specified byte buffer.
+     */
+    static SQLiteDescriptor decode(ByteBuffer buffer, long id, UUID storeId) throws StoreException
+    {
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+
+        final int tracksLength = buffer.getInt();
+        final int[] ids = Encoder.decodeIntegers(buffer, tracksLength, Encoding.INT32_DELTA_VAR_BYTE_FAST_PFOR);
+        final int[] encodings = Encoder.decodeIntegers(buffer, tracksLength, Encoding.INT32_VAR_BYTE_FAST_PFOR);
+
+        final SQLiteTrack[] tracks = new SQLiteTrack[tracksLength];
+        for (int i = 0; i < tracksLength; ++i)
+        {
+            final SQLiteTrack track = new SQLiteTrack(ids[i], Encoding.values.get(encodings[i]));
+            track.setIndex(i);
+            tracks[i] = track;
+        }
+
+        // we assume there is no weird behavior regarding this HeapByteBuffer's backing array
+        return new SQLiteDescriptor(tracks, id, storeId);
+    }
 
     @Override
     public boolean equals(Object other)
@@ -37,7 +77,6 @@ public class SQLiteDescriptor implements Descriptor
                 && Objects.equals(storeId, ((SQLiteDescriptor) other).storeId)
                 && Arrays.equals(tracks, ((SQLiteDescriptor) other).tracks));
     }
-
 
     @Override
     public int hashCode()
@@ -59,7 +98,6 @@ public class SQLiteDescriptor implements Descriptor
         return cachedHashCode;
     }
 
-
     /**
      * Clone this descriptor for another store instance.
      */
@@ -73,25 +111,32 @@ public class SQLiteDescriptor implements Descriptor
         return this;
     }
 
-
     /**
      * Convert this descriptor to database representation.
      */
-    byte[] encode()
+    ByteBuffer encode() throws StoreException
     {
-        final ByteBuffer buffer = ByteBuffer.allocate(tracks.length)
-                .order(ByteOrder.LITTLE_ENDIAN);
-
+        final int tracksLength = tracks.length;
+        final int[] ids = new int[tracksLength];
+        final int[] encodings = new int[tracksLength];
+        int i = 0;
         for (final Track track : tracks)
         {
-            buffer.putInt(track.getId());
-            buffer.putInt(track.getEncoding().ordinal());
+            ids[i] = track.getId();
+            encodings[i] = track.getEncoding().ordinal();
+            ++i;
         }
 
-        // we assume there is no weird behavior regarding this HeapByteBuffer's backing array
-        return buffer.array();
-    }
+        final ByteBuffer buffer = ByteBuffer.allocate(tracksLength * 2 * 4)
+                .order(ByteOrder.LITTLE_ENDIAN);
 
+        buffer.putInt(tracksLength); // length
+        Encoder.encodeIntegers(ids, buffer, Encoding.INT32_DELTA_VAR_BYTE_FAST_PFOR);
+        Encoder.encodeIntegers(encodings, buffer, Encoding.INT32_VAR_BYTE_FAST_PFOR);
+
+        // we assume there is no weird behavior regarding this HeapByteBuffer's backing array
+        return buffer;
+    }
 
     long getId()
     {
@@ -128,13 +173,13 @@ public class SQLiteDescriptor implements Descriptor
     private SQLiteTrack binarySearchTrackById(int trackId)
     {
         int first = 0;
-        int last = (tracks.length >>> 2) - 1;
+        int last = tracks.length - 1;
 
         while (first <= last)
         {
             final int middle = (first + last) >>> 1;
 
-            final int value = tracks[middle << 1].getId();
+            final int value = tracks[middle].getId();
             if (value < trackId)
             {
                 first = middle + 1;
@@ -145,7 +190,7 @@ public class SQLiteDescriptor implements Descriptor
             }
             else
             {
-                return tracks[middle << 2];
+                return tracks[middle];
             }
         }
 
