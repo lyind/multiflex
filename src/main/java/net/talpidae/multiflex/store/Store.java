@@ -21,7 +21,9 @@ package net.talpidae.multiflex.store;
 import net.talpidae.multiflex.format.Chunk;
 import net.talpidae.multiflex.format.Descriptor;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
 
 /**
@@ -29,11 +31,6 @@ import java.util.List;
  */
 public interface Store extends AutoCloseable
 {
-    /**
-     * Meta-data key that denotes the store version.
-     */
-    String KEY_VERSION = "version";
-
 
     /**
      * Open this store.
@@ -50,30 +47,49 @@ public interface Store extends AutoCloseable
      */
     void put(long ts, Chunk chunk) throws StoreException;
 
-
     /**
-     * Find a single chunk by exact timestamp.
+     * Find a single chunk by exact timestamp (in seconds since epoch).
      */
     Chunk findByTimestamp(long ts) throws StoreException;
 
+    /**
+     * Find chunks by timestamp (in seconds since epoch) range.
+     *
+     * @param tsFirst The begin of the range (inclusive)
+     * @param tsLast  The upper limit of the range (inclusive)
+     * @return List of chunks within the specified range
+     */
+    List<Chunk> findByTimestampRange(long tsFirst, long tsLast) throws StoreException;
 
     /**
-     * Find chunks by timestamp range.
+     * Find this store's epoch (in microseconds since the UNIX epoch).
+     *
+     * @return This store's epoch in microseconds since the UNIX epoch or -1 in case no epoch has been set
      */
-    List<Chunk> findByTimestampRange(long tsBegin, long tsEnd);
+    long getEpoch() throws StoreException;
 
+    /**
+     * Initialize this store's epoch (in microseconds since the UNIX epoch).
+     *
+     * @throws IllegalStateException    in case the epoch for this store has already been set
+     * @throws IllegalArgumentException in case the epoch is negative
+     */
+    void setEpoch(long epochMicros) throws StoreException;
+
+    /**
+     * Find the maximum timestamp of any chunk contained in this store.
+     */
+    long findMaxTimestamp() throws StoreException;
 
     /**
      * Retrieve the meta-data value associated with the specified key.
      */
     String getMeta(String key) throws StoreException;
 
-
     /**
      * Store the specified meta-data value uniquely identified by the key.
      */
     void putMeta(String key, String value) throws StoreException;
-
 
     /**
      * Return a Descriptor.Builder instance.
@@ -86,8 +102,47 @@ public interface Store extends AutoCloseable
     Chunk.Builder chunkBuilder(Descriptor descriptor);
 
     /**
+     * Return this store's unique ID.
+     */
+    UUID getId();
+
+    /**
+     * Return this store's schema or format version.
+     */
+    int getVersion();
+
+    /**
      * Close this store. This instance can't be used afterwards.
      */
     @Override
     void close() throws StoreException;
+
+
+    /**
+     * Represents meta keys reserved for store internal purposes, these can not be set using setMeta().
+     */
+    enum ReservedMetaKey
+    {
+        ID,
+        EPOCH_MICROS,
+        VERSION;
+
+        public static final List<ReservedMetaKey> values = Arrays.asList(values());
+
+        public static final List<String> names;
+
+        static
+        {
+            final String[] allNames = new String[values.size()];
+
+            int i = 0;
+            for (final ReservedMetaKey value : values)
+            {
+                allNames[i] = value.name();
+                ++i;
+            }
+
+            names = Arrays.asList(allNames);
+        }
+    }
 }

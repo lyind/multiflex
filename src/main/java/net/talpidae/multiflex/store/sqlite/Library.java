@@ -37,10 +37,6 @@ class Library
 
     private static final String LIB_INDEX_NAME = "natives.index";
 
-    private static final String[] LIB_NAMES = {
-            "sqlite4java-win32-x64-1.0.392.dll"
-    };
-
     private static boolean isDeployed = false;
 
 

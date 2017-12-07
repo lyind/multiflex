@@ -44,7 +44,7 @@ class SQLiteDescriptorCache
     /**
      * Get a descriptor by its ID.
      */
-    public SQLiteDescriptor get(long id) throws StoreException
+    SQLiteDescriptor get(long id) throws StoreException
     {
         final SQLiteDescriptor descriptor = cache.get(id);
         if (descriptor == null)
@@ -78,7 +78,7 @@ class SQLiteDescriptorCache
      *
      * @return Existing or new Descriptor instance registered with this store.
      */
-    public SQLiteDescriptor intern(SQLiteDescriptor descriptor) throws StoreException
+    SQLiteDescriptor intern(SQLiteDescriptor descriptor) throws StoreException
     {
         final SQLiteDescriptor localDescriptor = descriptor.forStore(store.getId());
 
@@ -109,7 +109,7 @@ class SQLiteDescriptorCache
     /**
      * Clear the cache.
      */
-    public void clear()
+    void clear()
     {
         cache.clear();
     }

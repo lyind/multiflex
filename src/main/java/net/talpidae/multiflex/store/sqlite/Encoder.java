@@ -24,7 +24,6 @@ import net.talpidae.multiflex.store.StoreException;
 
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
-import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
 
@@ -39,8 +38,6 @@ class Encoder
 
     private final SkippableComposition INT32_DELTA_VAR_BYTE_FAST_PFOR;
 
-    private final CharsetDecoder utf8Decoder;
-
     private final CharsetEncoder utf8Encoder;
 
 
@@ -50,7 +47,6 @@ class Encoder
         INT32_DELTA_VAR_BYTE_FAST_PFOR = new DeltaSkippableComposition(new HeapFastPFOR(), new HeapVariableByte());
 
         utf8Encoder = StandardCharsets.UTF_8.newEncoder();
-        utf8Decoder = StandardCharsets.UTF_8.newDecoder();
     }
 
     /**
@@ -227,7 +223,7 @@ class Encoder
          *
          * @param f1 first codec
          */
-        public DeltaSkippableComposition(SkippableIntegerCODEC f1, SkippableIntegerCODEC f2)
+        DeltaSkippableComposition(SkippableIntegerCODEC f1, SkippableIntegerCODEC f2)
         {
             super(f1, f2);
         }

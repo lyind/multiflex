@@ -236,6 +236,8 @@ public class SQLiteDescriptor implements Descriptor
             }
             else
             {
+                // stay compatible with Android
+                //noinspection ComparatorCombinators
                 tracks.sort((Track a, Track b) -> Integer.compare(a.getId(), b.getId()));
 
                 // assign indices

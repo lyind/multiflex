@@ -23,6 +23,8 @@ import java.util.List;
 
 /**
  * All supported encodings for data fields.
+ * <p>
+ * Note that order matters here, ordinals may be stored as part of descriptors in the stores.
  */
 public enum Encoding
 {

@@ -20,9 +20,14 @@ package net.talpidae.multiflex.store.sqlite;
 import com.almworks.sqlite4java.SQLiteConnection;
 import com.almworks.sqlite4java.SQLiteException;
 import com.almworks.sqlite4java.SQLiteStatement;
+import net.talpidae.multiflex.format.Chunk;
+import net.talpidae.multiflex.store.Store;
 import net.talpidae.multiflex.store.StoreException;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 
@@ -72,24 +77,6 @@ class DAO
 
 
     /**
-     * Set schema version.
-     */
-    void replaceVersion(int version) throws SQLiteException
-    {
-        final SQLiteStatement insertOrReplaceVersion = db.prepare("INSERT OR REPLACE INTO meta (\"key\", \"value\") VALUES ('version', ?)", true);
-        try
-        {
-            insertOrReplaceVersion.bind(1, version);
-            insertOrReplaceVersion.step();
-        }
-        finally
-        {
-            insertOrReplaceVersion.dispose();
-        }
-    }
-
-
-    /**
      * Get store UUID.
      *
      * @return Store UUID or null if none has been set.
@@ -118,24 +105,6 @@ class DAO
 
 
     /**
-     * Insert store UUID.
-     */
-    void insertOrReplaceStoreId(UUID storeId) throws SQLiteException
-    {
-        final SQLiteStatement insertOrReplaceStoreId = db.prepare("INSERT OR REPLACE INTO meta (\"key\", \"value\") VALUES ('id', ?)", true);
-        try
-        {
-            insertOrReplaceStoreId.bind(1, storeId.toString());
-            insertOrReplaceStoreId.step();
-        }
-        finally
-        {
-            insertOrReplaceStoreId.dispose();
-        }
-    }
-
-
-    /**
      * Query the schema version. Not cached since it is rarely needed.
      * <p>
      * This also checks if the meta table already exists and returns schema version 0 otherwise.
@@ -147,9 +116,10 @@ class DAO
         {
             if (selectTableMetaExists.step())
             {
-                final SQLiteStatement selectVersion = db.prepare("SELECT \"value\" FROM meta WHERE \"key\" = 'version'", false);
+                final SQLiteStatement selectVersion = db.prepare("SELECT \"value\" FROM meta WHERE \"key\" = ?", false);
                 try
                 {
+                    selectVersion.bind(1, Store.ReservedMetaKey.VERSION.name());
                     return selectVersion.step() ? selectVersion.columnInt(0) : 0;
                 }
                 finally
@@ -279,6 +249,25 @@ class DAO
 
 
     /**
+     * Find the maximum track chunk timestamp.
+     *
+     * @return The maximum timestamp of any chunk contained in this store. -1 if no timestamp has been found (no chunks).
+     */
+    long selectMaxChunkTimestamp() throws SQLiteException
+    {
+        final SQLiteStatement selectMaxChunkTimestamp = db.prepare("SELECT ifnull(MAX(\"ts\"), -1) FROM track", true);
+        try
+        {
+            return selectMaxChunkTimestamp.step() ? selectMaxChunkTimestamp.columnLong(0) : -1;
+        }
+        finally
+        {
+            selectMaxChunkTimestamp.dispose();
+        }
+    }
+
+
+    /**
      * Insert a track chunk.
      */
     void insertOrReplaceTrackChunk(long timestamp, SQLiteDescriptor descriptor, ByteBuffer chunk) throws SQLiteException
@@ -296,6 +285,61 @@ class DAO
             insertOrReplaceChunk.dispose();
         }
     }
+
+
+    /**
+     * Find all chunks that lie within the specified timestamp (seconds since epochMillies in table meta).
+     * <p>
+     * Call this within a transaction.
+     *
+     * @param tsFirst        The begin of the range (inclusive)
+     * @param tsLast         The upper limit of the range (inclusive)
+     * @param descriptorById Function that get a descriptor by the specified descriptor ID
+     * @return A list of Chunks constructed from the located DB entries, empty list if none were found
+     */
+    List<Chunk> selectChunksByTimestampRange(long tsFirst, long tsLast, DescriptorByIdFunction descriptorById) throws SQLiteException, StoreException
+    {
+        final SQLiteStatement selectChunksByTimestampRange = db.prepare("SELECT ts, descriptor_id, chunk FROM track WHERE ts >= ?", true);
+        try
+        {
+            selectChunksByTimestampRange.bind(1, tsFirst);
+            selectChunksByTimestampRange.bind(2, tsLast);
+
+            // cache last used descriptor
+            SQLiteDescriptor descriptor = null;
+            final ArrayList<Chunk> list = new ArrayList<>();
+            while (selectChunksByTimestampRange.step())
+            {
+                final long ts = selectChunksByTimestampRange.columnLong(0);
+                final long descriptorId = selectChunksByTimestampRange.columnLong(1);
+
+                // lookup descriptor by id
+                if (descriptor == null || descriptor.getId() != descriptorId)
+                {
+                    descriptor = descriptorById.findDescriptor(descriptorId);
+                }
+
+                if (descriptor != null)
+                {
+                    list.add(new SQLiteChunk(descriptor, ts, ByteBuffer.wrap(selectChunksByTimestampRange.columnBlob(2))));
+                }
+            }
+
+            if (list.isEmpty())
+            {
+                return Collections.emptyList();
+            }
+
+            list.trimToSize();
+
+            return list;
+        }
+        finally
+        {
+            selectChunksByTimestampRange.dispose();
+        }
+    }
+
 
     /**
      * Find a chunk by timestamp.

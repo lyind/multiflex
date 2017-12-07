@@ -26,24 +26,12 @@ import net.talpidae.multiflex.store.Store;
 import net.talpidae.multiflex.store.StoreException;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
 
 public class SQLiteStore implements Store
 {
-    private static final String STORE_ID_KEY = "id";
-
-    private static final String EPOCH_MILLIES_KEY = "epochMillies";
-
-    private static final String VERSION_KEY = "version";
-
-    private static final List<String> RESERVED_META_KEYS = Arrays.asList(STORE_ID_KEY, EPOCH_MILLIES_KEY, VERSION_KEY);
-
-    private final File dbFile;
-
     private final SQLiteDescriptorCache descriptorCache;
 
     private final SQLiteConnection db;
@@ -63,75 +51,16 @@ public class SQLiteStore implements Store
 
     private int schemaVersion = 0;
 
-
     public SQLiteStore(File file)
     {
-        dbFile = file;
-        db = new SQLiteConnection(dbFile);
+        db = new SQLiteConnection(file);
         descriptorCache = new SQLiteDescriptorCache(this);
 
         // simple DAO for our format's tables
         dao = new DAO(db);
 
         // implement single level transaction
-        transaction = new Transaction()
-        {
-            @Override
-            public DAO getDao()
-            {
-                return dao;
-            }
-
-            @Override
-            public boolean isActive()
-            {
-                return inTransaction;
-            }
-
-            @Override
-            public void begin() throws StoreException
-            {
-                if (!inTransaction)
-                {
-                    try
-                    {
-                        dao.beginTransaction();
-                        inTransaction = true;
-                    }
-                    catch (SQLiteException e)
-                    {
-                        throw new StoreException("transaction begin failed", e);
-                    }
-                }
-            }
-
-            @Override
-            public void rollback()
-            {
-                if (inTransaction)
-                {
-                    dao.rollback();
-                    inTransaction = false;
-                }
-            }
-
-            @Override
-            public void commit() throws StoreException
-            {
-                if (inTransaction)
-                {
-                    try
-                    {
-                        dao.commit();
-                        inTransaction = false;
-                    }
-                    catch (SQLiteException e)
-                    {
-                        throw new StoreException("transaction commit failed", e);
-                    }
-                }
-            }
-        };
+        transaction = new SQLiteStoreTransaction();
     }
 
     @Override
@@ -212,7 +141,7 @@ public class SQLiteStore implements Store
         }
 
         final SQLiteChunk actualChunk = (SQLiteChunk) chunk;
-        perform(() ->
+        transact(() ->
         {
             descriptorCache.intern(actualChunk.getDescriptor());
 
@@ -222,11 +151,10 @@ public class SQLiteStore implements Store
         });
     }
 
-
     @Override
     public Chunk findByTimestamp(long ts) throws StoreException
     {
-        return perform(() ->
+        return transact(() ->
         {
             try
             {
@@ -240,15 +168,101 @@ public class SQLiteStore implements Store
     }
 
     @Override
-    public List<Chunk> findByTimestampRange(long tsBegin, long tsEnd)
+    public List<Chunk> findByTimestampRange(long tsFirst, long tsLast) throws StoreException
     {
-        return Collections.emptyList();
+        return transact(() ->
+        {
+            try
+            {
+                return dao.selectChunksByTimestampRange(tsFirst, tsLast, descriptorCache::get);
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException("failed to read chunks for timestamps between " + tsFirst + " and " + tsLast
+                        + ": " + e.getMessage(), e);
+            }
+        });
+    }
+
+    @Override
+    public long getEpoch() throws StoreException
+    {
+        final String epochValue = transact(() ->
+        {
+            try
+            {
+                return dao.selectMeta(ReservedMetaKey.EPOCH_MICROS.name());
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException("failed to get store epoch: " + e.getMessage(), e);
+            }
+        });
+
+        if (epochValue != null)
+        {
+            try
+            {
+                return Long.parseLong(epochValue);
+            }
+            catch (NumberFormatException e)
+            {
+                throw new StoreException("invalid epoch: \"" + epochValue + "\": " + e.getMessage(), e);
+            }
+        }
+
+        return -1;
+    }
+
+    @Override
+    public void setEpoch(long epochMicros) throws StoreException
+    {
+        if (epochMicros < 0)
+        {
+            throw new IllegalArgumentException("negative epoch specified: " + epochMicros);
+        }
+
+        transact(() ->
+        {
+            try
+            {
+                final String existingEpoch = dao.selectMeta(ReservedMetaKey.EPOCH_MICROS.name());
+                if (existingEpoch != null)
+                {
+                    throw new IllegalStateException("epoch has already been set and can only be set once");
+                }
+
+                dao.insertOrReplaceMeta(ReservedMetaKey.EPOCH_MICROS.name(), Long.toString(epochMicros));
+
+                return null;
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException("failed to set store epoch: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    @Override
+    public long findMaxTimestamp() throws StoreException
+    {
+        return transact(() ->
+        {
+            try
+            {
+                return dao.selectMaxChunkTimestamp();
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException("failed find maximum chunk timestamp");
+            }
+        });
     }
 
     @Override
     public String getMeta(String key) throws StoreException
     {
-        return perform(() ->
+        return transact(() ->
         {
             try
             {
@@ -264,12 +278,14 @@ public class SQLiteStore implements Store
     @Override
     public void putMeta(String key, String value) throws StoreException
     {
-        if (RESERVED_META_KEYS.contains(key))
+        if (ReservedMetaKey.names.contains(key))
         {
-            throw new IllegalArgumentException("reserved keys must not be used, offending key: " + key);
+            throw new IllegalArgumentException("reserved keys ("
+                    + String.join(", ", ReservedMetaKey.names)
+                    + " can't be set, offending key: " + key);
         }
 
-        perform(() ->
+        transact(() ->
         {
             try
             {
@@ -301,24 +317,20 @@ public class SQLiteStore implements Store
         return new SQLiteChunk.Builder((SQLiteDescriptor) descriptor);
     }
 
-
     /**
      * Get the store's unique ID.
      */
+    @Override
     public UUID getId()
     {
         return id;
     }
 
-
-    /**
-     * Get the stores DAO.
-     */
-    DAO getDao()
+    @Override
+    public int getVersion()
     {
-        return dao;
+        return schemaVersion;
     }
-
 
     @Override
     public void close() throws StoreException
@@ -344,13 +356,20 @@ public class SQLiteStore implements Store
         }
     }
 
+    /**
+     * Get the stores DAO.
+     */
+    DAO getDao()
+    {
+        return dao;
+    }
 
     /**
      * Run a TransactionalTask inside a new DB transaction.
      * <p>
      * The transaction is automatically rolled back on any exception thrown from the task.
      */
-    <T> T perform(TransactionalTask<T> task) throws StoreException
+    private <T> T transact(TransactionalTask<T> task) throws StoreException
     {
         transaction.begin();
         try
@@ -369,7 +388,6 @@ public class SQLiteStore implements Store
         }
     }
 
-
     /**
      * Validate the schema.
      * <p>
@@ -379,7 +397,7 @@ public class SQLiteStore implements Store
      */
     private int validateSchema() throws StoreException
     {
-        return perform(() ->
+        return transact(() ->
         {
             try
             {
@@ -414,7 +432,7 @@ public class SQLiteStore implements Store
      */
     private int updateSchema() throws StoreException
     {
-        return perform(() ->
+        return transact(() ->
         {
             try
             {
@@ -430,15 +448,15 @@ public class SQLiteStore implements Store
                             db.exec(migration);
 
                             // register schema version
-                            dao.replaceVersion(++version);
+                            dao.insertOrReplaceMeta(ReservedMetaKey.VERSION.name(), Integer.toString(++version));
                         }
 
-                        final String storeIdValue = dao.selectMeta(STORE_ID_KEY);
+                        final String storeIdValue = dao.selectMeta(ReservedMetaKey.ID.name());
                         final UUID storeId;
                         if (storeIdValue == null)
                         {
                             storeId = UUID.randomUUID();
-                            dao.insertOrReplaceMeta(STORE_ID_KEY, storeId.toString());
+                            dao.insertOrReplaceMeta(ReservedMetaKey.ID.name(), storeId.toString());
                         }
                         else
                         {
@@ -462,7 +480,7 @@ public class SQLiteStore implements Store
                     {
                         try
                         {
-                            final String storeIdValue = dao.selectMeta(STORE_ID_KEY);
+                            final String storeIdValue = dao.selectMeta(ReservedMetaKey.ID.name());
                             if (storeIdValue == null)
                             {
                                 throw new StoreException("store id not present");
@@ -496,6 +514,7 @@ public class SQLiteStore implements Store
         });
     }
 
+
     /**
      * This stores state.
      */
@@ -508,5 +527,65 @@ public class SQLiteStore implements Store
         OPEN_READWRITE,
 
         CLOSED
+    }
+
+
+    private class SQLiteStoreTransaction implements Transaction
+    {
+        @Override
+        public DAO getDao()
+        {
+            return dao;
+        }
+
+        @Override
+        public boolean isActive()
+        {
+            return inTransaction;
+        }
+
+        @Override
+        public void begin() throws StoreException
+        {
+            if (!inTransaction)
+            {
+                try
+                {
+                    dao.beginTransaction();
+                    inTransaction = true;
+                }
+                catch (SQLiteException e)
+                {
+                    throw new StoreException("transaction begin failed", e);
+                }
+            }
+        }
+
+        @Override
+        public void rollback()
+        {
+            if (inTransaction)
+            {
+                dao.rollback();
+                inTransaction = false;
+            }
+        }
+
+        @Override
+        public void commit() throws StoreException
+        {
+            if (inTransaction)
+            {
+                try
+                {
+                    dao.commit();
+                    inTransaction = false;
+                }
+                catch (SQLiteException e)
+                {
+                    throw new StoreException("transaction commit failed", e);
+                }
+            }
+        }
     }
 }

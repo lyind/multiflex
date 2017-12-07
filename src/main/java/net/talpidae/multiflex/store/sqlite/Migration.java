@@ -30,7 +30,7 @@ import java.util.List;
  * <p>
  * Valid version numbers start at 1 and have no gaps.
  */
-public final class Migration
+final class Migration
 {
     private static final List<String> MIGRATIONS;
 
@@ -70,7 +70,7 @@ public final class Migration
         }
     }
 
-    public static int getExpectedSchemaVersion()
+    static int getExpectedSchemaVersion()
     {
         return MIGRATIONS.size();
     }
@@ -78,7 +78,7 @@ public final class Migration
     /**
      * Return all migration SQL statements necessary to reach the expected schema version from the specified start version.
      */
-    public static List<String> getMigrations(int startVersion)
+    static List<String> getMigrations(int startVersion)
     {
         return MIGRATIONS.subList(startVersion, MIGRATIONS.size());
     }
