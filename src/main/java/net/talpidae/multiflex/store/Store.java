@@ -45,7 +45,7 @@ public interface Store extends AutoCloseable
     /**
      * Insert new or replace existing chunk.
      */
-    void put(long ts, Chunk chunk) throws StoreException;
+    void put(Chunk chunk) throws StoreException;
 
     /**
      * Find a single chunk by exact timestamp (in seconds since epoch).

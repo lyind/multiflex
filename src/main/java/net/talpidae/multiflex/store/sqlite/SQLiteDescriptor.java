@@ -127,8 +127,7 @@ public class SQLiteDescriptor implements Descriptor
             ++i;
         }
 
-        final ByteBuffer buffer = ByteBuffer.allocate(tracksLength * 2 * 4)
-                .order(ByteOrder.LITTLE_ENDIAN);
+        final ByteBuffer buffer = ByteBuffer.allocate(tracksLength * 2 * 4).order(ByteOrder.LITTLE_ENDIAN);
 
         buffer.putInt(tracksLength); // length
         Encoder.encodeIntegers(ids, buffer, Encoding.INT32_DELTA_VAR_BYTE_FAST_PFOR);
@@ -160,7 +159,7 @@ public class SQLiteDescriptor implements Descriptor
     @Override
     public int size()
     {
-        return tracks.length / 2;
+        return tracks.length;
     }
 
     @Override
@@ -251,7 +250,11 @@ public class SQLiteDescriptor implements Descriptor
                 sortedTracks = tracks.toArray(new SQLiteTrack[index]);
             }
 
-            return new SQLiteDescriptor(sortedTracks, 0L, store.getId());
+            final Descriptor descriptor = new SQLiteDescriptor(sortedTracks, 0L, store.getId());
+
+            // clear builder for further use
+            tracks.clear();
+            return descriptor;
         }
     }
 

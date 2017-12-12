@@ -22,6 +22,9 @@ import net.talpidae.multiflex.store.StoreException;
 import java.nio.ByteBuffer;
 
 
+/**
+ * A chunk represents a single part of a track of exactly one second length.
+ */
 public interface Chunk extends AutoCloseable
 {
     /**
@@ -50,16 +53,54 @@ public interface Chunk extends AutoCloseable
     ByteBuffer getBinary(int trackId) throws StoreException;
 
 
+    /**
+     * A re-usable builder for chunks.
+     */
     interface Builder
     {
+        /**
+         * Set the timestamp for this chunk in seconds since the store's epoch.
+         */
         Builder timestamp(long timestamp);
 
+        /**
+         * Set integer data for the track with ID trackId.
+         *
+         * @param trackId  The ID of the track to set the data for
+         * @param integers An array of integers
+         * @return This instance
+         * @throws StoreException If the data could not be set
+         */
         Builder integers(int trackId, int[] integers) throws StoreException;
 
+        /**
+         * Set text data for the track with ID trackId.
+         *
+         * @param trackId The ID of the track to set the data for
+         * @param text    A String with the text data
+         * @return This instance
+         * @throws StoreException If the data could not be set
+         */
         Builder text(int trackId, String text) throws StoreException;
 
+        /**
+         * Set binary data for the track with ID trackId.
+         *
+         * @param trackId The ID of the track to set the data for
+         * @param binary  A buffer with the remaining bytes being the data to store
+         * @return This instance
+         * @throws StoreException If the data could not be set
+         */
         Builder binary(int trackId, ByteBuffer binary);
 
+        /**
+         * Reset this builder so it can be re-used to build another chunk.
+         */
+        void reset();
+
+        /**
+         * Builds a chunk with the specified timestamp and data and resets this Builder instance for re-use.
+         */
         Chunk build() throws StoreException;
     }
 }

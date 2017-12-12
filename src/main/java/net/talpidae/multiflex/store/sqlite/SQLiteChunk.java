@@ -17,7 +17,6 @@
 
 package net.talpidae.multiflex.store.sqlite;
 
-import com.almworks.sqlite4java.SQLiteException;
 import net.talpidae.multiflex.format.Chunk;
 import net.talpidae.multiflex.format.Encoding;
 import net.talpidae.multiflex.store.StoreException;
@@ -25,6 +24,7 @@ import net.talpidae.multiflex.store.sqlite.SQLiteDescriptor.SQLiteTrack;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 
 
 public class SQLiteChunk implements Chunk
@@ -37,16 +37,19 @@ public class SQLiteChunk implements Chunk
 
     private final ByteBuffer data;
 
-    private int[] offsets;
+    private transient int[] offsets;
 
-    private int[] lengths;
+    private transient int[] lengths;
+
+    // offset of first field (after index)
+    private transient int fieldOffset = -1;
 
 
     SQLiteChunk(SQLiteDescriptor descriptor, long timestamp, ByteBuffer data)
     {
         this.descriptor = descriptor;
         this.timestamp = timestamp;
-        this.data = data;
+        this.data = data.order(ByteOrder.LITTLE_ENDIAN);
     }
 
 
@@ -68,9 +71,17 @@ public class SQLiteChunk implements Chunk
      */
     private void decompressIndex() throws StoreException
     {
-        data.position(0);
-        offsets = Encoder.decodeIntegers(data, descriptor.size(), Encoding.INT32_DELTA_VAR_BYTE_FAST_PFOR);
-        lengths = Encoder.decodeIntegers(data, descriptor.size(), Encoding.INT32_VAR_BYTE_FAST_PFOR);
+        final int indexSize = descriptor.size();
+        final ByteBuffer indexData = data.duplicate().order(ByteOrder.LITTLE_ENDIAN);
+
+        indexData.position(0);
+        indexData.limit(Math.min(indexSize * 8 + (indexSize * 4), indexData.remaining()));
+
+        // TODO Fix decompression issue here
+        offsets = Encoder.decodeIntegers(indexData, indexSize, Encoding.INT32_DELTA_VAR_BYTE_FAST_PFOR);
+        lengths = Encoder.decodeIntegers(indexData, indexSize, Encoding.INT32_VAR_BYTE_FAST_PFOR);
+
+        fieldOffset = indexData.position();
     }
 
 
@@ -82,18 +93,10 @@ public class SQLiteChunk implements Chunk
         final SQLiteTrack track = descriptor.getTrack(streamId);
         if (track != null)
         {
-            if (offsets == null || lengths == null)
+            if (fieldOffset < 0)
             {
                 decompressIndex();
             }
-
-            final int index = track.getIndex();
-
-            final int offset = offsets[index];
-            data.position(offset);
-
-            final int nextOffset = (index + 1) < offsets.length ? offsets[index] : data.limit();
-            data.limit(nextOffset);
 
             return track;
         }
@@ -110,11 +113,12 @@ public class SQLiteChunk implements Chunk
         {
             final int length = lengths[track.getIndex()];
 
-            return Encoder.decodeIntegers(data, length, track.getEncoding());
+            return Encoder.decodeIntegers(getField(track.getIndex()), length, track.getEncoding());
         }
 
         return null;
     }
+
 
     @Override
     public String getText(int streamId) throws StoreException
@@ -122,7 +126,7 @@ public class SQLiteChunk implements Chunk
         final SQLiteTrack track = locateTrack(streamId);
         if (track != null)
         {
-            return Encoder.decodeText(data, track.getEncoding());
+            return Encoder.decodeText(getField(track.getIndex()), track.getEncoding());
         }
 
         return null;
@@ -135,33 +139,38 @@ public class SQLiteChunk implements Chunk
         final SQLiteTrack track = locateTrack(streamId);
         if (track != null)
         {
-            return Encoder.decodeBinary(data, track.getEncoding());
+            return Encoder.decodeBinary(getField(track.getIndex()), track.getEncoding());
         }
 
         return null;
     }
 
 
-    /**
-     * Write this chunk out to the specified output stream.
-     */
-    void persist(DAO dao) throws StoreException
+    ByteBuffer getData()
     {
-        try
-        {
-            dao.insertOrReplaceTrackChunk(timestamp, descriptor, data);
-        }
-        catch (SQLiteException e)
-        {
-            throw new StoreException("failed to persist chunk", e);
-        }
+        return data.duplicate().order(ByteOrder.LITTLE_ENDIAN);
     }
+
 
     @Override
     public void close() throws Exception
     {
+        fieldOffset = -1;
         offsets = null;
         lengths = null;
+    }
+
+
+    private ByteBuffer getField(int index)
+    {
+        final int nextIndex = index + 1;
+        final int position = fieldOffset + offsets[index];
+
+        final ByteBuffer field = data.duplicate().order(ByteOrder.LITTLE_ENDIAN);
+        field.position(position);
+        field.limit(nextIndex < offsets.length ? fieldOffset + offsets[nextIndex] : field.limit());
+
+        return field;
     }
 
 
@@ -199,8 +208,11 @@ public class SQLiteChunk implements Chunk
 
             final int uncompressedLength = integers.length;
 
-            final ByteBuffer data = ByteBuffer.allocate(uncompressedLength);
-            Encoder.encodeIntegers(integers, data, track.getEncoding());
+            // create copy of array, because lower methods modify it
+            final int[] integersCopy = Arrays.copyOf(integers, integers.length);
+
+            final ByteBuffer data = ByteBuffer.allocate(uncompressedLength * 8).order(ByteOrder.LITTLE_ENDIAN);
+            Encoder.encodeIntegers(integersCopy, data, track.getEncoding());
             data.flip();
 
             // store uncompressed length to allow for decompression
@@ -225,7 +237,7 @@ public class SQLiteChunk implements Chunk
 
             final int uncompressedLength = text.length();
 
-            final ByteBuffer data = ByteBuffer.allocate(uncompressedLength * 4);
+            final ByteBuffer data = ByteBuffer.allocate(uncompressedLength * 4).order(ByteOrder.LITTLE_ENDIAN);
             Encoder.encodeText(text, data, track.getEncoding());
             data.flip();
 
@@ -251,7 +263,7 @@ public class SQLiteChunk implements Chunk
             final int uncompressedBytes = binary.remaining();
 
             // we may later use a real compression scheme, so don't just put the original buffer
-            final ByteBuffer data = ByteBuffer.allocate(uncompressedBytes);
+            final ByteBuffer data = ByteBuffer.allocate(uncompressedBytes).order(ByteOrder.LITTLE_ENDIAN);
             Encoder.encodeBinary(binary, data, track.getEncoding());
             data.flip();
 
@@ -282,6 +294,19 @@ public class SQLiteChunk implements Chunk
         }
 
 
+        /**
+         * Reset this builder so it can be re-used to build another chunk.
+         */
+        @Override
+        public void reset()
+        {
+            // prepare for re-use
+            this.timestamp = -1;
+            Arrays.fill(this.values, null);
+            Arrays.fill(this.uncompressedLengths, 0);
+        }
+
+
         @Override
         public Chunk build() throws StoreException
         {
@@ -302,9 +327,8 @@ public class SQLiteChunk implements Chunk
                 ++index;
             }
 
-            // over-allocate by just a few bytes (don't know offsets/lengths compressed size, yet)
-            final ByteBuffer data = ByteBuffer.allocate((index * 2) + compressedDataTotal)
-                    .order(ByteOrder.LITTLE_ENDIAN);
+            // over-allocate by a few bytes (don't know offsets/lengths compressed size, yet)
+            final ByteBuffer data = ByteBuffer.allocate((index * 8) + compressedDataTotal).order(ByteOrder.LITTLE_ENDIAN);
 
             // we always know how many integers we have uncompressed from the descriptor
             Encoder.encodeIntegers(offsets, data, Encoding.INT32_DELTA_VAR_BYTE_FAST_PFOR);
@@ -316,7 +340,14 @@ public class SQLiteChunk implements Chunk
                 data.put(value);
             }
 
-            return new SQLiteChunk(descriptor, timestamp, data);
+            data.flip();
+
+            final Chunk chunk = new SQLiteChunk(descriptor, timestamp, data);
+
+            // prepare for re-use
+            reset();
+
+            return chunk;
         }
     }
 }

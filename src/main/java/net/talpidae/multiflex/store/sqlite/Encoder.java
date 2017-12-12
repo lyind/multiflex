@@ -23,11 +23,11 @@ import net.talpidae.multiflex.format.Encoding;
 import net.talpidae.multiflex.store.StoreException;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.CharBuffer;
+import java.nio.IntBuffer;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
-
-import static java.nio.ByteOrder.LITTLE_ENDIAN;
 
 
 class Encoder
@@ -82,10 +82,14 @@ class Encoder
      */
     static int[] decodeIntegers(ByteBuffer data, int outLength, Encoding encoding) throws StoreException
     {
-        final int[] in = new int[data.remaining()];
+        // TODO Make this read only as much as needed when headlessUncompress supports IntBuffers
+        final int inLength = data.remaining() / 4;
+        final int[] in = new int[inLength];
         data.asIntBuffer().get(in);
 
         final int[] out = new int[outLength];
+        final IntWrapper inPosition = new IntWrapper();
+        final IntWrapper outPosition = new IntWrapper();
         final Encoder encoder = getInstance();
 
         switch (encoding)
@@ -93,20 +97,28 @@ class Encoder
             case INT32_VAR_BYTE_FAST_PFOR:
             {
                 // TODO Optimize this by making compression directly support ByteBuffer/IntBuffer as input/output or use array()
-                encoder.INT32_VAR_BYTE_FAST_PFOR.headlessUncompress(in, new IntWrapper(0), in.length, out, new IntWrapper(), outLength);
+                encoder.INT32_VAR_BYTE_FAST_PFOR.headlessUncompress(in, inPosition, inLength, out, outPosition, outLength);
                 break;
             }
 
             case INT32_DELTA_VAR_BYTE_FAST_PFOR:
             {
                 // TODO Optimize this by making compression directly support ByteBuffer/IntBuffer as input/output or use array()
-                encoder.INT32_DELTA_VAR_BYTE_FAST_PFOR.headlessUncompress(in, new IntWrapper(0), in.length, out, new IntWrapper(), outLength);
+                encoder.INT32_DELTA_VAR_BYTE_FAST_PFOR.headlessUncompress(in, inPosition, inLength, out, outPosition, outLength);
                 break;
             }
 
             default:
                 throw new StoreException("illegal combination of encoding " + encoding.name() + " and value of type int[]");
         }
+
+        if (outPosition.get() != outLength)
+        {
+            throw new StoreException("decompressed unexpected number of integers: expected " + outLength + ", got " + outPosition.get());
+        }
+
+        // consume input
+        data.position(data.position() + (inPosition.get() * 4));
 
         return out;
     }
@@ -136,7 +148,7 @@ class Encoder
         {
             // TODO Possibly optimize (directly feed String chars to encoder?)
             final CharBuffer inBuffer = CharBuffer.allocate(in.length());
-            inBuffer.put(in);
+            inBuffer.put(in).flip();
 
             Encoder.encodeText(inBuffer, out, encoding);
         }
@@ -159,7 +171,7 @@ class Encoder
         {
             final CharsetEncoder encoder = getInstance().utf8Encoder;
 
-            encoder.encode(in, out, true);
+            encoder.reset().encode(in, out, true);
             encoder.flush(out);
         }
         else
@@ -177,32 +189,33 @@ class Encoder
      */
     static void encodeIntegers(int[] in, ByteBuffer out, Encoding encoding) throws StoreException
     {
-        final int[] outBuffer = new int[in.length];
+        final int[] outBuffer = new int[in.length + in.length / 2];
         final IntWrapper outPos = new IntWrapper();
         final Encoder encoder = getInstance();
+        final IntBuffer outIntBuffer = out.asIntBuffer();
         switch (encoding)
         {
             case INT32_VAR_BYTE_FAST_PFOR:
             {
                 // TODO Optimize this by making compression directly support ByteBuffer/IntBuffer as input/output or use array()
                 encoder.INT32_VAR_BYTE_FAST_PFOR.headlessCompress(in, new IntWrapper(0), in.length, outBuffer, outPos);
-
-                out.order(LITTLE_ENDIAN).asIntBuffer().put(outBuffer, 0, outPos.get());
                 break;
             }
 
             case INT32_DELTA_VAR_BYTE_FAST_PFOR:
             {
                 // TODO Optimize this by making compression directly support ByteBuffer/IntBuffer as input/output or use array()
-                encoder.INT32_DELTA_VAR_BYTE_FAST_PFOR.headlessCompress(in, new IntWrapper(0), in.length, outBuffer, outPos);
-
-                out.order(LITTLE_ENDIAN).asIntBuffer().put(outBuffer, 0, outPos.get());
+                encoder.INT32_DELTA_VAR_BYTE_FAST_PFOR.headlessCompress(in, new IntWrapper(), in.length, outBuffer, outPos);
                 break;
             }
 
             default:
                 throw new StoreException("illegal combination of encoding " + encoding.name() + " and value of type int[]");
         }
+
+        final int outPosition = outPos.get();
+        outIntBuffer.put(outBuffer, 0, outPosition);
+        out.position(out.position() + outPosition * 4);
     }
 
     private static Encoder getInstance()
@@ -235,7 +248,10 @@ class Encoder
             final int start = inpos.get();
 
             // encode delta, first value is not touched and used as initial value
-            Delta.delta(in, start + 1, inlength - 1, in[start]);
+            if (inlength > 1)
+            {
+                Delta.delta(in, start + 1, inlength - 1, in[start]);
+            }
 
             // perform other compression steps
             super.headlessCompress(in, inpos, inlength, out, outpos);
@@ -251,7 +267,10 @@ class Encoder
 
             // reverse delta encoding
             final int end = outpos.get();
-            Delta.fastinverseDelta(out, start + 1, end - start - 1, out[start]);
+            if (num > 1)
+            {
+                Delta.fastinverseDelta(out, start + 1, end - start - 1, out[start]);
+            }
         }
     }
 
@@ -264,7 +283,7 @@ class Encoder
         @Override
         protected ByteBuffer makeBuffer(int sizeInBytes)
         {
-            return ByteBuffer.allocate(sizeInBytes);
+            return ByteBuffer.allocate(sizeInBytes).order(ByteOrder.LITTLE_ENDIAN);
         }
     }
 
@@ -277,7 +296,7 @@ class Encoder
         @Override
         protected ByteBuffer makeBuffer(int sizeInBytes)
         {
-            return ByteBuffer.allocate(sizeInBytes);
+            return ByteBuffer.allocate(sizeInBytes).order(ByteOrder.LITTLE_ENDIAN);
         }
     }
 }

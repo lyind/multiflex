@@ -39,6 +39,9 @@ public interface Descriptor extends Iterable<Track>
     {
         Builder track(int trackId, Encoding encoding);
 
+        /**
+         * Builds a descriptor with the specified tracks and resets this builder.
+         */
         Descriptor build();
     }
 }

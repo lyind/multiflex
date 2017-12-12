@@ -128,7 +128,7 @@ public class SQLiteStore implements Store
     }
 
     @Override
-    public void put(long ts, Chunk chunk) throws StoreException
+    public void put(Chunk chunk) throws StoreException
     {
         if (state != State.OPEN_READWRITE)
         {
@@ -145,7 +145,14 @@ public class SQLiteStore implements Store
         {
             descriptorCache.intern(actualChunk.getDescriptor());
 
-            actualChunk.persist(dao);
+            try
+            {
+                dao.insertOrReplaceTrackChunk(actualChunk);
+            }
+            catch (SQLiteException e)
+            {
+                throw new StoreException("failed to persist chunk", e);
+            }
 
             return null;
         });
@@ -408,10 +415,16 @@ public class SQLiteStore implements Store
                     throw new StoreException("schema version too old: " + version + ", expected: " + expectedVersion);
                 }
 
-                UUID storeId = dao.selectStoreId();
-                if (storeId == null || storeId.version() != 4)
+                final String storeIdValue = dao.selectMeta(ReservedMetaKey.ID.name());
+                if (storeIdValue == null)
                 {
-                    throw new StoreException("store id not present or invalid");
+                    throw new StoreException("store id is not set");
+                }
+
+                final UUID storeId = UUID.fromString(storeIdValue);
+                if (storeId.version() != 4)
+                {
+                    throw new StoreException("store id is not a valid UUIDv4");
                 }
 
                 id = storeId;

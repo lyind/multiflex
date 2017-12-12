@@ -77,34 +77,6 @@ class DAO
 
 
     /**
-     * Get store UUID.
-     *
-     * @return Store UUID or null if none has been set.
-     */
-    UUID selectStoreId() throws SQLiteException
-    {
-        final SQLiteStatement insertOrReplaceVersion = db.prepare("SELECT \"value\" FROM meta WHERE \"key\" = 'id'", false);
-        try
-        {
-            if (insertOrReplaceVersion.step())
-            {
-                final String id = insertOrReplaceVersion.columnString(0);
-                if (id != null)
-                {
-                    return UUID.fromString(id);
-                }
-            }
-
-            return null;
-        }
-        finally
-        {
-            insertOrReplaceVersion.dispose();
-        }
-    }
-
-
-    /**
      * Query the schema version. Not cached since it is rarely needed.
      * <p>
      * This also checks if the meta table already exists and returns schema version 0 otherwise.
@@ -270,14 +242,20 @@ class DAO
     /**
      * Insert a track chunk.
      */
-    void insertOrReplaceTrackChunk(long timestamp, SQLiteDescriptor descriptor, ByteBuffer chunk) throws SQLiteException
+    void insertOrReplaceTrackChunk(SQLiteChunk chunk) throws SQLiteException
     {
         final SQLiteStatement insertOrReplaceChunk = db.prepare("INSERT OR REPLACE INTO track (\"ts\", \"descriptor_id\", \"chunk\") VALUES (?, ?, ?)", true);
         try
         {
-            insertOrReplaceChunk.bind(1, timestamp);
-            insertOrReplaceChunk.bind(2, descriptor.getId());
-            insertOrReplaceChunk.bind(3, chunk.array());
+            final ByteBuffer data = chunk.getData();
+            if (!data.hasArray())
+            {
+                throw new IllegalStateException("can only handle HeapByteBuffer data right now");
+            }
+
+            insertOrReplaceChunk.bind(1, chunk.getTimestamp());
+            insertOrReplaceChunk.bind(2, chunk.getDescriptor().getId());
+            insertOrReplaceChunk.bind(3, data.array(), data.arrayOffset() + data.position(), data.remaining());
             insertOrReplaceChunk.stepThrough();
         }
         finally
