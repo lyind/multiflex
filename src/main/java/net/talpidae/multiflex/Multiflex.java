@@ -20,7 +20,8 @@ package net.talpidae.multiflex;
 
 import net.talpidae.multiflex.store.Store;
 import net.talpidae.multiflex.store.StoreException;
-import net.talpidae.multiflex.store.sqlite.SQLiteStore;
+import net.talpidae.multiflex.store.sqlite.AlmworksSqliteDAO;
+import net.talpidae.multiflex.store.base.BaseStore;
 
 import java.io.File;
 
@@ -29,15 +30,15 @@ public class Multiflex
 {
 
     /**
-     * Open the store at the specified location read-write or read-only.
+     * Open the store at the specified location read-write or read-only using the regular SQLite wrapper.
      *
      * @param dbFile   The store file
      * @param writable Open the store in writable mode or not
      * @return An open store instance
      */
-    public static Store open(File dbFile, boolean writable) throws StoreException
+    public static Store openSqlite(File dbFile, boolean writable) throws StoreException
     {
-        final Store store = new SQLiteStore(dbFile);
+        final Store store = new BaseStore(new AlmworksSqliteDAO(dbFile));
         try
         {
             return store.open(writable);
@@ -50,7 +51,7 @@ public class Multiflex
             }
             catch (Exception e1)
             {
-                final StoreException nextException = new StoreException(e1.getMessage(), e1);
+                final StoreException nextException = new StoreException("failed to close after error", e1);
                 nextException.addSuppressed(e);
                 throw nextException;
             }

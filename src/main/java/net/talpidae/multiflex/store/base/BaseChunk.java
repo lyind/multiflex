@@ -15,23 +15,24 @@
  *
  */
 
-package net.talpidae.multiflex.store.sqlite;
+package net.talpidae.multiflex.store.base;
 
 import net.talpidae.multiflex.format.Chunk;
 import net.talpidae.multiflex.format.Encoding;
 import net.talpidae.multiflex.store.StoreException;
-import net.talpidae.multiflex.store.sqlite.SQLiteDescriptor.SQLiteTrack;
+import net.talpidae.multiflex.store.base.BaseDescriptor.SQLiteTrack;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.UUID;
 
 
-public class SQLiteChunk implements Chunk
+public class BaseChunk implements Chunk
 {
     // TODO Optimize read access by utilizing SQLiteBlob
 
-    private final SQLiteDescriptor descriptor;
+    private final BaseDescriptor descriptor;
 
     private final long timestamp;
 
@@ -45,7 +46,7 @@ public class SQLiteChunk implements Chunk
     private transient int fieldOffset = -1;
 
 
-    SQLiteChunk(SQLiteDescriptor descriptor, long timestamp, ByteBuffer data)
+    BaseChunk(BaseDescriptor descriptor, long timestamp, ByteBuffer data)
     {
         this.descriptor = descriptor;
         this.timestamp = timestamp;
@@ -54,7 +55,7 @@ public class SQLiteChunk implements Chunk
 
 
     @Override
-    public SQLiteDescriptor getDescriptor()
+    public BaseDescriptor getDescriptor()
     {
         return descriptor;
     }
@@ -63,6 +64,23 @@ public class SQLiteChunk implements Chunk
     public long getTimestamp()
     {
         return timestamp;
+    }
+
+
+    /**
+     * Return this Chunk or a representation suitable for use with the specified store ID.
+     * <p>
+     * The associated descriptor is also made local to the store.
+     */
+    BaseChunk forStore(UUID storeId)
+    {
+        final BaseDescriptor localDescriptor = descriptor.forStore(storeId);
+        if (localDescriptor != descriptor)
+        {
+            return new BaseChunk(localDescriptor, timestamp, data);
+        }
+
+        return this;
     }
 
 
@@ -176,7 +194,7 @@ public class SQLiteChunk implements Chunk
 
     static class Builder implements Chunk.Builder
     {
-        private final SQLiteDescriptor descriptor;
+        private final BaseDescriptor descriptor;
 
         private final ByteBuffer[] values;
 
@@ -185,7 +203,7 @@ public class SQLiteChunk implements Chunk
         private long timestamp = -1;
 
 
-        Builder(SQLiteDescriptor descriptor)
+        Builder(BaseDescriptor descriptor)
         {
             this.descriptor = descriptor;
 
@@ -342,7 +360,7 @@ public class SQLiteChunk implements Chunk
 
             data.flip();
 
-            final Chunk chunk = new SQLiteChunk(descriptor, timestamp, data);
+            final Chunk chunk = new BaseChunk(descriptor, timestamp, data);
 
             // prepare for re-use
             reset();

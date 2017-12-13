@@ -15,7 +15,7 @@
  *
  */
 
-package net.talpidae.multiflex.store.sqlite;
+package net.talpidae.multiflex.store.base;
 
 import net.talpidae.multiflex.format.Descriptor;
 import net.talpidae.multiflex.format.Encoding;
@@ -27,7 +27,7 @@ import java.nio.ByteOrder;
 import java.util.*;
 
 
-public class SQLiteDescriptor implements Descriptor
+public class BaseDescriptor implements Descriptor
 {
     private final SQLiteTrack[] tracks;
 
@@ -38,7 +38,7 @@ public class SQLiteDescriptor implements Descriptor
     private transient int cachedHashCode = 0;
 
 
-    private SQLiteDescriptor(SQLiteTrack[] tracks, long id, UUID storeId)
+    private BaseDescriptor(SQLiteTrack[] tracks, long id, UUID storeId)
     {
         this.tracks = tracks;
         this.id = id;
@@ -48,7 +48,7 @@ public class SQLiteDescriptor implements Descriptor
     /**
      * Build a descriptor out of the specified byte buffer.
      */
-    static SQLiteDescriptor decode(ByteBuffer buffer, long id, UUID storeId) throws StoreException
+    static BaseDescriptor decode(ByteBuffer buffer, long id, UUID storeId) throws StoreException
     {
         buffer.order(ByteOrder.LITTLE_ENDIAN);
 
@@ -65,7 +65,7 @@ public class SQLiteDescriptor implements Descriptor
         }
 
         // we assume there is no weird behavior regarding this HeapByteBuffer's backing array
-        return new SQLiteDescriptor(tracks, id, storeId);
+        return new BaseDescriptor(tracks, id, storeId);
     }
 
     @Override
@@ -73,9 +73,9 @@ public class SQLiteDescriptor implements Descriptor
     {
         return this == other
                 || (hashCode() == other.hashCode()
-                && other instanceof SQLiteDescriptor
-                && Objects.equals(storeId, ((SQLiteDescriptor) other).storeId)
-                && Arrays.equals(tracks, ((SQLiteDescriptor) other).tracks));
+                && other instanceof BaseDescriptor
+                && Objects.equals(storeId, ((BaseDescriptor) other).storeId)
+                && Arrays.equals(tracks, ((BaseDescriptor) other).tracks));
     }
 
     @Override
@@ -101,11 +101,11 @@ public class SQLiteDescriptor implements Descriptor
     /**
      * Clone this descriptor for another store instance.
      */
-    SQLiteDescriptor forStore(UUID storeId)
+    BaseDescriptor forStore(UUID storeId)
     {
         if (!this.storeId.equals(storeId))
         {
-            return new SQLiteDescriptor(Arrays.copyOf(tracks, tracks.length), 0L, storeId);
+            return new BaseDescriptor(Arrays.copyOf(tracks, tracks.length), 0L, storeId);
         }
 
         return this;
@@ -137,6 +137,12 @@ public class SQLiteDescriptor implements Descriptor
         return buffer;
     }
 
+
+    /**
+     * Get this descriptor's unique ID.
+     *
+     * @return ID assigned to this descriptor after it has been inserted into a store.
+     */
     long getId()
     {
         return id;
@@ -203,10 +209,10 @@ public class SQLiteDescriptor implements Descriptor
 
         private final List<SQLiteTrack> tracks = new ArrayList<>();
 
-        private final SQLiteStore store;
+        private final BaseStore store;
 
 
-        Builder(SQLiteStore store)
+        Builder(BaseStore store)
         {
             this.store = store;
         }
@@ -250,7 +256,7 @@ public class SQLiteDescriptor implements Descriptor
                 sortedTracks = tracks.toArray(new SQLiteTrack[index]);
             }
 
-            final Descriptor descriptor = new SQLiteDescriptor(sortedTracks, 0L, store.getId());
+            final Descriptor descriptor = new BaseDescriptor(sortedTracks, 0L, store.getId());
 
             // clear builder for further use
             tracks.clear();

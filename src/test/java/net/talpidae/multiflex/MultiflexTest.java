@@ -23,7 +23,6 @@ import net.talpidae.multiflex.format.Encoding;
 import net.talpidae.multiflex.store.Store;
 import net.talpidae.multiflex.store.StoreException;
 import net.talpidae.multiflex.util.Wave;
-import org.hamcrest.CoreMatchers;
 import org.junit.Test;
 
 import java.io.File;
@@ -34,10 +33,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.*;
 
 
 public class MultiflexTest
@@ -47,7 +43,7 @@ public class MultiflexTest
     {
         final File file = File.createTempFile(MultiflexTest.class.getSimpleName(), ".mfx");
 
-        try (Store store = Multiflex.open(file, true))
+        try (Store store = Multiflex.openSqlite(file, true))
         {
             assertNotNull("store is null", store);
         }
@@ -58,7 +54,7 @@ public class MultiflexTest
     {
         final File file = File.createTempFile(MultiflexTest.class.getSimpleName(), ".mfx");
 
-        try (Store store = Multiflex.open(file, true))
+        try (Store store = Multiflex.openSqlite(file, true))
         {
             assertNotNull("store is null", store);
 

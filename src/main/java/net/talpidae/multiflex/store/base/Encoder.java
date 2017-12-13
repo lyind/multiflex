@@ -15,7 +15,7 @@
  *
  */
 
-package net.talpidae.multiflex.store.sqlite;
+package net.talpidae.multiflex.store.base;
 
 import me.lemire.integercompression.*;
 import me.lemire.integercompression.differential.Delta;
