@@ -127,7 +127,7 @@ public class BaseDescriptor implements Descriptor
             ++i;
         }
 
-        final ByteBuffer buffer = ByteBuffer.allocate(tracksLength * 2 * 4).order(ByteOrder.LITTLE_ENDIAN);
+        final ByteBuffer buffer = ByteBuffer.allocate((tracksLength * 2 + 1) * 4).order(ByteOrder.LITTLE_ENDIAN);
 
         buffer.putInt(tracksLength); // length
         Encoder.encodeIntegers(ids, buffer, Encoding.INT32_DELTA_VAR_BYTE_FAST_PFOR);

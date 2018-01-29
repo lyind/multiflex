@@ -51,8 +51,13 @@ public enum Encoding
     /**
      * Array of 32-bit signed integers, compressed using Delta, VariableByte and FastPFOR, 0x3
      */
-    INT32_DELTA_VAR_BYTE_FAST_PFOR;
+    INT32_DELTA_VAR_BYTE_FAST_PFOR,
 
+    /**
+     * Array of 32-bit signed integers that doesn't contain the number -2147483648,
+     * compressed using an arithmetic coding scheme, VariableByte and FastPFOR, 0x4
+     */
+    INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR;
 
     public static final List<Encoding> values = Arrays.asList(values());
 }

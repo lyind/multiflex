@@ -1,7 +1,7 @@
--- Stores additional meta data
+-- Store meta data
 -- Pre-defined entries:
---   ID -> this stores UUID
---   VERSION -> integer which defined the format version
+--   ID -> store UUID
+--   VERSION -> format version
 --   EPOCH_MICROS -> store epoch microseconds since UNIX epoch
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY NOT NULL,
@@ -15,9 +15,9 @@ CREATE TABLE IF NOT EXISTS track_descriptor (
   descriptor BLOB UNIQUE         NOT NULL
 );
 
--- Stores actual data as compressed int[] in a blob
+-- Stores actual data as compressed int[] in BLOB column "chunk"
 CREATE TABLE IF NOT EXISTS track (
-  ts            INTEGER PRIMARY KEY NOT NULL, -- ts is the seconds since epochMillies
+  ts            INTEGER PRIMARY KEY NOT NULL, -- ts is the seconds since EPOCH_MICROS
   descriptor_id INTEGER             NOT NULL,
   chunk         BLOB                NOT NULL
 )

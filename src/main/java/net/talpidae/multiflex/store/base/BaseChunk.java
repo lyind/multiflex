@@ -164,7 +164,7 @@ public class BaseChunk implements Chunk
     }
 
 
-    ByteBuffer getData()
+    public ByteBuffer getData()
     {
         return data.duplicate().order(ByteOrder.LITTLE_ENDIAN);
     }

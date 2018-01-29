@@ -21,6 +21,7 @@ import me.lemire.integercompression.*;
 import me.lemire.integercompression.differential.Delta;
 import net.talpidae.multiflex.format.Encoding;
 import net.talpidae.multiflex.store.StoreException;
+import net.talpidae.multiflex.store.util.Center31BitEncoding;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -28,6 +29,7 @@ import java.nio.CharBuffer;
 import java.nio.IntBuffer;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 
 class Encoder
@@ -38,6 +40,8 @@ class Encoder
 
     private final SkippableComposition INT32_DELTA_VAR_BYTE_FAST_PFOR;
 
+    private final SkippableComposition INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR;
+
     private final CharsetEncoder utf8Encoder;
 
 
@@ -45,6 +49,7 @@ class Encoder
     {
         INT32_VAR_BYTE_FAST_PFOR = new SkippableComposition(new HeapFastPFOR(), new HeapVariableByte());
         INT32_DELTA_VAR_BYTE_FAST_PFOR = new DeltaSkippableComposition(new HeapFastPFOR(), new HeapVariableByte());
+        INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR = new Center31BitEncodingSkippableComposition(new HeapFastPFOR(), new HeapVariableByte());
 
         utf8Encoder = StandardCharsets.UTF_8.newEncoder();
     }
@@ -105,6 +110,12 @@ class Encoder
             {
                 // TODO Optimize this by making compression directly support ByteBuffer/IntBuffer as input/output or use array()
                 encoder.INT32_DELTA_VAR_BYTE_FAST_PFOR.headlessUncompress(in, inPosition, inLength, out, outPosition, outLength);
+                break;
+            }
+
+            case INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR:
+            {
+                encoder.INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR.headlessUncompress(in, inPosition, inLength, out, outPosition, outLength);
                 break;
             }
 
@@ -209,6 +220,13 @@ class Encoder
                 break;
             }
 
+            case INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR:
+            {
+                // TODO Optimize this by making compression directly support ByteBuffer/IntBuffer as input/output or use array()
+                encoder.INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR.headlessCompress(in, new IntWrapper(), in.length, outBuffer, outPos);
+                break;
+            }
+
             default:
                 throw new StoreException("illegal combination of encoding " + encoding.name() + " and value of type int[]");
         }
@@ -226,16 +244,6 @@ class Encoder
 
     private static final class DeltaSkippableComposition extends SkippableComposition
     {
-        /**
-         * Compose a scheme from a first one (f1) and a second one (f2). The first
-         * one is called first and then the second one tries to compress whatever
-         * remains from the first run.
-         * <p>
-         * By convention, the first scheme should be such that if, during decoding,
-         * a 32-bit zero is first encountered, then there is no output.
-         *
-         * @param f1 first codec
-         */
         DeltaSkippableComposition(SkippableIntegerCODEC f1, SkippableIntegerCODEC f2)
         {
             super(f1, f2);
@@ -271,6 +279,52 @@ class Encoder
             {
                 Delta.fastinverseDelta(out, start + 1, end - start - 1, out[start]);
             }
+        }
+    }
+
+
+    private static final class Center31BitEncodingSkippableComposition extends SkippableComposition
+    {
+        Center31BitEncodingSkippableComposition(SkippableIntegerCODEC f1, SkippableIntegerCODEC f2)
+        {
+            super(f1, f2);
+        }
+
+
+        @Override
+        public void headlessCompress(int[] in, IntWrapper inpos, int inlength, int[] out, IntWrapper outpos)
+        {
+            final int start = inpos.get();
+
+            // TODO Optimize Center31BitEncoding to work on a range
+            final int[] encoded;
+            if (start != 0 || inlength != in.length)
+            {
+                encoded = Center31BitEncoding.encode(Arrays.copyOfRange(in, start, start + inlength));
+            }
+            else
+            {
+                encoded = Center31BitEncoding.encode(in);
+            }
+
+            // perform other compression steps
+            super.headlessCompress(encoded, inpos, encoded.length, out, outpos);
+        }
+
+
+        @Override
+        public void headlessUncompress(int[] in, IntWrapper inpos, int inlength, int[] out, IntWrapper outpos, int num)
+        {
+            // reverse other compression steps
+            final int start = outpos.get();
+            super.headlessUncompress(in, inpos, inlength, out, outpos, num);
+
+            // TODO Optimize Center31BitEncoding to work on a range
+            final int[] decoded = Center31BitEncoding.decode(Arrays.copyOfRange(out, start, outpos.get()));
+
+            System.arraycopy(decoded, 0, out, start, decoded.length);
+
+            outpos.set(start + decoded.length);
         }
     }
 

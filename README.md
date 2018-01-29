@@ -43,3 +43,4 @@ Number | Name | Description
 1   | UTF8_STRING | Uncompressed UTF-8 string
 2   | INT32_VAR_BYTE_FAST_PFOR | Array of 32-bit signed integer, compressed using VariableByte and FastPFOR
 3   | INT32_DELTA_VAR_BYTE_FAST_PFOR | Array of 32-bit signed integers, compressed using Delta, VariableByte and FastPFOR
+4   | INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR | Array of 32-bit signed integers (excluding the number -2147483648), compressed using a arithmetic coding scheme, VariableByte and FastPFOR. This is primarily useful for embedded systems with tight memory constraints (< 64K or so).

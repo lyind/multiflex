@@ -39,14 +39,14 @@ public class Wave
 
         final int samples = (durationMillies * sampleRate) / 1000;
         final int[] out = new int[samples];
-        final int width = max - min;
+        final int width = max - min + 1;
         final int center = width / 2;
 
         final double period = Math.max(1, sampleRate) / frequency;
         for (int i = 0; i < samples; ++i)
         {
             final double angle = 2.0 * Math.PI * (i / period);
-            out[i] = (int) Math.min(max, Math.max(min, (Math.sin(angle) * width) + center));
+            out[i] = (int) Math.min(max, Math.max(min, ((Math.sin(angle) + 1.0) * center) + min));
         }
 
         return out;

@@ -22,12 +22,16 @@ import net.talpidae.multiflex.format.Descriptor;
 import net.talpidae.multiflex.format.Encoding;
 import net.talpidae.multiflex.store.Store;
 import net.talpidae.multiflex.store.StoreException;
+import net.talpidae.multiflex.store.base.BaseChunk;
 import net.talpidae.multiflex.util.Wave;
 import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -50,7 +54,7 @@ public class MultiflexTest
     }
 
     @Test
-    public void testPutChunkGetChunk() throws Exception
+    public void testPutChunkGetChunkRandomSize() throws Exception
     {
         final File file = File.createTempFile(MultiflexTest.class.getSimpleName(), ".mfx");
 
@@ -59,7 +63,7 @@ public class MultiflexTest
             assertNotNull("store is null", store);
 
             final Descriptor descriptor = store.descriptorBuilder()
-                    .track(42, Encoding.INT32_DELTA_VAR_BYTE_FAST_PFOR)
+                    .track(42, Encoding.INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR)
                     .track(86, Encoding.UTF8_STRING)
                     .track(69, Encoding.BINARY)
                     .build();
@@ -69,12 +73,11 @@ public class MultiflexTest
             // write signal, keeping waveform for later comparison
             final List<int[]> waves = new ArrayList<>();
             final Random random = new Random(86);
-            final long endMillies = TimeUnit.MINUTES.toMillis(60);
+            final long endSeconds = TimeUnit.MINUTES.toSeconds(60);
             final long epochMicros = TimeUnit.MILLISECONDS.toMicros(System.currentTimeMillis());
 
-            long totalIntegersSize = 0;
             store.setEpoch(epochMicros);
-            for (long t = 0; t < endMillies; t += 1000)
+            for (long t = 0; t < endSeconds; ++t)
             {
                 builder.timestamp(t);
                 builder.text(86, "blub");
@@ -82,7 +85,6 @@ public class MultiflexTest
 
                 final int[] wave = Wave.sine(Short.MIN_VALUE, Short.MAX_VALUE, 1000, (int) (1023 * random.nextDouble()) + 1, (149 * random.nextDouble()) + 1);
                 waves.add(wave);
-                totalIntegersSize += wave.length * 4;
                 builder.integers(42, wave);
 
                 store.put(builder.build());
@@ -95,7 +97,7 @@ public class MultiflexTest
             // read chunk by chunk, comparing values
             int i = 0;
             final byte[] expectedBytes = new byte[]{0x17, 0x33, 0x44};
-            for (long t = 0; t < endMillies; t += 1000)
+            for (long t = 0; t < endSeconds; ++t)
             {
                 try (final Chunk chunk = store.findByTimestamp(t))
                 {
@@ -109,6 +111,100 @@ public class MultiflexTest
                 }
 
                 ++i;
+            }
+        }
+    }
+
+
+    @Test
+    public void testPutChunkGetChunkOptimalSize() throws Exception
+    {
+        final File file = File.createTempFile(MultiflexTest.class.getSimpleName(), ".mfx");
+        final File seqFile = File.createTempFile(MultiflexTest.class.getSimpleName(), ".mfx.seq");
+        final File rawFile = File.createTempFile(MultiflexTest.class.getSimpleName(), ".mfx.raw");
+        final int sampleRate = 1024 * 64;
+
+        try (Store store = Multiflex.openSqlite(file, true))
+        {
+            assertNotNull("store is null", store);
+
+            final Descriptor descriptor = store.descriptorBuilder()
+                    .track(42, Encoding.INT32_CENTER31BIT_VAR_BYTE_FAST_PFOR)
+                    .build();
+
+            final Chunk.Builder builder = store.chunkBuilder(descriptor);
+
+            // write signal, keeping waveform for later comparison
+            final Random random = new Random(86);
+            final long endSeconds = TimeUnit.MINUTES.toSeconds(1);
+            final long epochMicros = TimeUnit.MILLISECONDS.toMicros(System.currentTimeMillis());
+            final int[] wave = Wave.sine(Short.MIN_VALUE, Short.MAX_VALUE, 1000, sampleRate, 100);
+
+            final ByteBuffer rawBuffer = ByteBuffer.allocate(sampleRate * 4);
+            try (final FileChannel rawChannel = FileChannel.open(rawFile.toPath(), StandardOpenOption.APPEND);
+                 final FileChannel seqChannel = FileChannel.open(seqFile.toPath(), StandardOpenOption.APPEND))
+            {
+                store.setEpoch(epochMicros);
+                for (long t = 0; t < endSeconds; ++t)
+                {
+                    rawBuffer.clear();
+
+                    final IntBuffer intBuffer = rawBuffer.asIntBuffer().put(wave);
+                    rawBuffer.position(intBuffer.position() * 4);
+                    rawBuffer.flip();
+                    do
+                    {
+                        rawChannel.write(rawBuffer);
+                    }
+                    while (rawBuffer.hasRemaining());
+
+                    builder.timestamp(t);
+                    builder.integers(42, wave);
+
+                    final BaseChunk chunk = (BaseChunk) builder.build();
+                    final ByteBuffer data = chunk.getData();
+                    do
+                    {
+                        seqChannel.write(data);
+                    }
+                    while (data.hasRemaining());
+
+                    store.put(chunk);
+                }
+            }
+
+            assertNotNull("id is invalid UUID", store.getId());
+            assertEquals("version is not set", store.getVersion(), 1);
+            assertEquals("epoch not stored correctly", store.getEpoch(), epochMicros);
+
+            // read chunk by chunk, comparing values with original values stored in rawFile
+            final int[] rawWave = new int[sampleRate];
+            try (final FileChannel rawChannel = FileChannel.open(rawFile.toPath(), StandardOpenOption.READ))
+            {
+                int i = 0;
+                for (long t = 0; t < endSeconds; ++t)
+                {
+                    try (final Chunk chunk = store.findByTimestamp(t))
+                    {
+                        rawBuffer.clear();
+                        rawBuffer.limit(sampleRate * 4);
+                        do
+                        {
+                            if (rawChannel.read(rawBuffer) < 0)
+                            {
+                                // EOF
+                                break;
+                            }
+                        }
+                        while (rawBuffer.hasRemaining());
+
+                        rawBuffer.asIntBuffer().get(rawWave);
+
+                        assertArrayEquals("wrong wave is returned", chunk.getIntegers(42), rawWave);
+                    }
+
+                    ++i;
+                }
             }
         }
     }
