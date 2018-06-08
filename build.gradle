@@ -41,6 +41,7 @@ configurations {
 dependencies {
     compile "com.almworks.sqlite4java:sqlite4java:1.0.392"
     natives ("com.almworks.sqlite4java:sqlite4java-win32-x64:1.0.392")
+    natives ("com.almworks.sqlite4java:libsqlite4java-linux-amd64:1.0.392")
 
     compile 'me.lemire.integercompression:JavaFastPFOR:[0.1,)'
 
@@ -60,13 +61,15 @@ task copyNatives(type: Copy) {
 task indexNatives << {
     def index = new File("$buildDir/natives/natives.index")
     index.parentFile.mkdirs()
+    def indexWriter = index.newWriter()
     configurations.natives.each { file ->
-        if (file.getName().matches(/.+?\.dll|\.so|\.jnilib/))
+        if (file.getName().matches(/.+?(\.dll|\.so|\.jnilib)/))
         {
             println "native found: " + file.getName()
-            index.append(file.getName() + '\n')
+            indexWriter.write(file.getName() + '\n')
         }
     }
+    indexWriter.close()
 }
 copyNatives.dependsOn(indexNatives)
 jar.dependsOn(copyNatives)
