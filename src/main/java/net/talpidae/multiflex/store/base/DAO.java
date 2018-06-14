@@ -72,12 +72,12 @@ public interface DAO extends AutoCloseable
      * <p>
      * Call this within a transaction.
      *
-     * @param tsFirst        The begin of the range (inclusive)
-     * @param tsLast         The upper limit of the range (inclusive)
+     * @param tsBegin        The begin of the range (inclusive)
+     * @param tsEnd         The upper limit of the range (exclusive)
      * @param descriptorById Function that get a descriptor by the specified descriptor ID
      * @return A list of Chunks constructed from the located DB entries, empty list if none were found
      */
-    List<Chunk> selectChunksByTimestampRange(long tsFirst, long tsLast, ChunkFactory descriptorById) throws StoreException;
+    List<Chunk> selectChunksByTimestampRange(long tsBegin, long tsEnd, ChunkFactory descriptorById) throws StoreException;
 
     /**
      * Find a chunk by timestamp.

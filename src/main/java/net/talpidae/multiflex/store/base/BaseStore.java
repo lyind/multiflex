@@ -174,17 +174,17 @@ public class BaseStore implements Store
     }
 
     @Override
-    public List<Chunk> findByTimestampRange(long tsFirst, long tsLast) throws StoreException
+    public List<Chunk> findByTimestampRange(long tsBegin, long tsEnd) throws StoreException
     {
         return transact(() ->
         {
             try
             {
-                return dao.selectChunksByTimestampRange(tsFirst, tsLast, this::createChunk);
+                return dao.selectChunksByTimestampRange(tsBegin, tsEnd, this::createChunk);
             }
             catch (StoreException e)
             {
-                throw new StoreException("failed to read chunks for timestamps between " + tsFirst + " and " + tsLast
+                throw new StoreException("failed to read chunks for timestamps between " + tsBegin + " and " + tsEnd + " (exclusive)"
                         + ": " + e.getMessage(), e);
             }
         });

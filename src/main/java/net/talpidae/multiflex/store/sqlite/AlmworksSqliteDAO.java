@@ -21,9 +21,9 @@ import com.almworks.sqlite4java.SQLiteConnection;
 import com.almworks.sqlite4java.SQLiteException;
 import com.almworks.sqlite4java.SQLiteStatement;
 import net.talpidae.multiflex.format.Chunk;
-import net.talpidae.multiflex.store.base.DAO;
 import net.talpidae.multiflex.store.Store;
 import net.talpidae.multiflex.store.StoreException;
+import net.talpidae.multiflex.store.base.DAO;
 import net.talpidae.multiflex.store.base.Transaction;
 
 import java.io.File;
@@ -336,21 +336,21 @@ public class AlmworksSqliteDAO implements DAO
      * <p>
      * Call this within a transaction.
      *
-     * @param tsFirst      The begin of the range (inclusive)
-     * @param tsLast       The upper limit of the range (inclusive)
+     * @param tsBegin      The begin of the range (inclusive)
+     * @param tsEnd        The upper limit of the range (exclusive)
      * @param chunkFactory Function that get a descriptor by the specified descriptor ID
      * @return A list of Chunks constructed from the located DB entries, empty list if none were found
      */
     @Override
-    public List<Chunk> selectChunksByTimestampRange(long tsFirst, long tsLast, ChunkFactory chunkFactory) throws StoreException
+    public List<Chunk> selectChunksByTimestampRange(long tsBegin, long tsEnd, ChunkFactory chunkFactory) throws StoreException
     {
         try
         {
-            final SQLiteStatement selectChunksByTimestampRange = db.prepare("SELECT ts, descriptor_id, chunk FROM track WHERE ts >= ?", true);
+            final SQLiteStatement selectChunksByTimestampRange = db.prepare("SELECT ts, descriptor_id, chunk FROM track WHERE ts >= ? AND ts < ?", true);
             try
             {
-                selectChunksByTimestampRange.bind(1, tsFirst);
-                selectChunksByTimestampRange.bind(2, tsLast);
+                selectChunksByTimestampRange.bind(1, tsBegin);
+                selectChunksByTimestampRange.bind(2, tsEnd);
 
                 final ArrayList<Chunk> list = new ArrayList<>();
                 while (selectChunksByTimestampRange.step())
