@@ -58,7 +58,7 @@ task copyNatives(type: Copy) {
 }
 
 // store list of natives in /natives.index
-task indexNatives << {
+task indexNatives {
     def index = new File("$buildDir/natives/natives.index")
     index.parentFile.mkdirs()
     def indexWriter = index.newWriter()
