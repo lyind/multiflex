@@ -71,7 +71,7 @@ class Library
 
             for (final String libName : index)
             {
-                final String libTargetPath = libDir.getAbsolutePath() + File.separatorChar + libName;
+                final String libTargetPath = libDir.getAbsolutePath() + File.separatorChar + libName.replaceFirst("-\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}","");
                 try
                 {
                     try (final OutputStream libTarget = new FileOutputStream(libTargetPath))
