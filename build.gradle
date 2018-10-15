@@ -24,8 +24,8 @@ plugins {
 group 'net.talpidae'
 version '1'
 
-sourceCompatibility = 1.8
-targetCompatibility = 1.8
+sourceCompatibility = JavaVersion.VERSION_1_10
+targetCompatibility = JavaVersion.VERSION_1_10
 [javadoc, compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
 
 repositories {
@@ -43,7 +43,7 @@ dependencies {
     natives ("com.almworks.sqlite4java:sqlite4java-win32-x64:1.0.392")
     natives ("com.almworks.sqlite4java:libsqlite4java-linux-amd64:1.0.392")
 
-    compile 'me.lemire.integercompression:JavaFastPFOR:[0.1,)'
+    compile 'me.lemire.integercompression:JavaFastPFOR:0.+'
 
     testCompile group: 'junit', name: 'junit', version: '4.12'
 }

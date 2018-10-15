@@ -61,7 +61,7 @@ public class Q32dot8
     /**
      * Linear interpolate from q32dot8a to q32dot8b for the specified fraction.
      *
-     * Calculate fraction using: (x << 8) / range
+     * Calculate fraction using: (x &lt;&lt; 8) / range
      */
     public static long lerp8(long q32dot8a, long q32dot8b, int fraction8bit)
     {

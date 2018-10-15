@@ -89,7 +89,6 @@ public interface Chunk extends AutoCloseable
          * @param trackId The ID of the track to set the data for
          * @param binary  A buffer with the remaining bytes being the data to store
          * @return This instance
-         * @throws StoreException If the data could not be set
          */
         Builder binary(int trackId, ByteBuffer binary);
 
